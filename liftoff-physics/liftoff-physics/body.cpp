@@ -1,3 +1,4 @@
+#include <iostream>
 #include "body.h"
 
 liftoff::body::body(double mass, int derivatives) : mass(mass) {
@@ -50,7 +51,7 @@ void liftoff::body_impl::set_position(const liftoff::vector &position) {
         driver_updated = true;
     }
 
-    liftoff::vector prev{prev_state[0]};
+    liftoff::vector &prev{prev_state[0]};
     liftoff::vector &pos{d_mot[0]};
     prev.set(pos);
     pos.set(position);
@@ -65,7 +66,7 @@ void liftoff::body_impl::set_velocity(const liftoff::vector &velocity) {
         driver_updated = true;
     }
 
-    liftoff::vector prev{prev_state[1]};
+    liftoff::vector &prev{prev_state[1]};
     liftoff::vector &v{d_mot[1]};
     prev.set(v);
     v.set(velocity);
@@ -80,7 +81,7 @@ void liftoff::body_impl::set_acceleration(const liftoff::vector &acceleration) {
         driver_updated = true;
     }
 
-    liftoff::vector prev{prev_state[2]};
+    liftoff::vector &prev{prev_state[2]};
     liftoff::vector &a{d_mot[2]};
     prev.set(a);
     a.set(acceleration);

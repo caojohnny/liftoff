@@ -68,6 +68,7 @@ int main() {
             }
 
             n.set({0, -net_force.get_y(), 0});
+            std::cout << n.to_string() << std::endl;
             forces.push_back(n);
         }
 
