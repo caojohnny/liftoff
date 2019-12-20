@@ -9,8 +9,8 @@ namespace liftoff {
     class body {
     protected:
         double mass;
-        std::vector<liftoff::vector *> forces;
-        std::vector<vector *> d_mot;
+        std::vector<liftoff::vector> forces;
+        std::vector<liftoff::vector> d_mot;
 
     public:
         body(double mass, int derivatives);
@@ -19,9 +19,9 @@ namespace liftoff {
 
         void set_mass(double mass);
 
-        const std::vector<liftoff::vector *> &get_forces() const;
+        std::vector<liftoff::vector> &get_forces();
 
-        const std::vector<liftoff::vector *> &get_d_mot() const;
+        std::vector<liftoff::vector> &get_d_mot();
 
         virtual void pre_compute();
 
@@ -35,15 +35,19 @@ namespace liftoff {
     class body_impl : public liftoff::body {
     private:
         int driver_idx;
+        bool driver_updated;
+
+        // TODO: Lockdown usage of this jesus christ
+        std::vector<liftoff::vector> prev_state;
 
     public:
-        explicit body_impl(double mass);
-
-        body_impl(double mass, int derivatives, int driver_idx);
-
-        ~body_impl();
+        explicit body_impl(double mass, int derivatives = 4, int driver_idx = 2);
 
         void set_position(const liftoff::vector &position);
+
+        void set_velocity(const liftoff::vector &velocity);
+
+        void set_acceleration(const liftoff::vector &acceleration);
 
         void pre_compute() override;
 
