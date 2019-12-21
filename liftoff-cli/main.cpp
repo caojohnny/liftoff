@@ -1,50 +1,51 @@
-#include <iomanip>
 #include <mpl/matplotlibcpp.h>
 #include <liftoff-physics/body.h>
-#include <liftoff-physics/force_driven_body.h>
+#include "recording_fdb.h"
 
-static const long long TICKS_PER_SEC = 1000000;
-static const double TIME_STEP = 1.0 / TICKS_PER_SEC;
+static const long long TICKS_PER_SEC = 10;
+static const long double TIME_STEP = 1.0 / TICKS_PER_SEC;
 
 namespace mpl = matplotlibcpp;
 
 int main() {
-    std::cout << std::setprecision(16);
-
-    liftoff::force_driven_body body{5, 4};
-    liftoff::vector w{0, -9.8 * body.get_mass(), 0};
+    recording_fdb body{5, 4, (double) TIME_STEP};
     std::vector<liftoff::vector> &forces = body.get_forces();
+    const std::vector<liftoff::vector> &d_mot{body.get_d_mot()};
+    const liftoff::vector &pos{d_mot[0]};
+    const liftoff::vector &v{d_mot[1]};
+    const liftoff::vector &a{d_mot[2]};
 
+    const vector_record &pos_data = body.get_data(0);
+    const vector_record &v_data = body.get_data(1);
+    const vector_record &a_data = body.get_data(2);
+    const vector_record &j_data = body.get_data(3);
+
+    // Initial state
+    liftoff::vector w{0, -9.8 * body.get_mass(), 0};
     body.set_position({0, 20, 0});
     body.set_velocity({1, 20, 0});
     forces.push_back(w);
+    body.clear_state_changes();
 
     int complete_ticks = 0;
     std::vector<double> time;
-    std::vector<double> pos_x;
-    std::vector<double> pos_y;
-    std::vector<double> v_y;
     for (long long i = 1; i < LONG_LONG_MAX; ++i) {
+        // Computation
         body.pre_compute();
-        body.compute_forces(TIME_STEP);
-        body.compute_motion(TIME_STEP);
-        body.post_compute();
+        body.compute_forces();
+        body.compute_motion();
 
-        const std::vector<liftoff::vector> &d_mot{body.get_d_mot()};
-        const liftoff::vector &pos{d_mot[0]};
-        const liftoff::vector &v{d_mot[1]};
+        // Landing logic
         if (pos.get_y() <= 0 && complete_ticks == 0) {
-            std::cout << "Hit the ground at " << i << " ticks or " << (i * TIME_STEP) << " sec" << std::endl;
-            std::cout << "v_f = " << v.magnitude() << std::endl;
-
             body.set_velocity({});
-            body.drive_derivatives(1, TIME_STEP);
 
             complete_ticks++;
         }
 
         if (complete_ticks > 0) {
             complete_ticks++;
+
+            forces[forces.size() - 1] = {};
 
             liftoff::vector net_force;
             for (const auto &force : forces) {
@@ -54,20 +55,28 @@ int main() {
             forces[forces.size() - 1] = {0, -net_force.get_y(), 0};
         }
 
+        body.post_compute();
+
+        // End logic
         if (complete_ticks >= TICKS_PER_SEC) {
             break;
         }
 
-        /* time.push_back(i * TIME_STEP);
-        pos_x.push_back(pos.get_x());
-        pos_y.push_back(pos.get_y());
-        v_y.push_back(v.get_y()); */
+        // Data plotting
+        time.push_back(i * TIME_STEP);
+
+        mpl::clf();
+        mpl::named_plot("X vs Y", pos_data.get_x(), pos_data.get_y());
+        mpl::named_plot("Y Velocity", time, v_data.get_y());
+        // mpl::named_plot("Y Acceleration", time, a_data.get_y());
+        // mpl::named_plot("X Velocity", time, v_data.get_x());
+        // mpl::named_plot("X Acceleration", time, a_data.get_x());
+        // mpl::named_plot("X Jerk", time, j_data.get_x());
+        mpl::legend();
+        mpl::pause(0.0000001);
     }
 
-    /* mpl::named_plot("X vs Y", pos_x, pos_y);
-    mpl::named_plot("Y Velocity", time, v_y);
-    mpl::legend();
-    mpl::show(); */
+    mpl::show();
 
     return 0;
 }

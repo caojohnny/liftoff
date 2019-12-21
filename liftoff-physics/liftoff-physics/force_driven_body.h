@@ -12,7 +12,7 @@ namespace liftoff {
         std::vector<liftoff::vector> forces;
 
     public:
-        explicit force_driven_body(double mass, int derivatives = 4);
+        explicit force_driven_body(double mass, int derivatives = 4, double time_step = 1);
 
         void set_position(const liftoff::vector &position);
 
@@ -22,17 +22,7 @@ namespace liftoff {
 
         std::vector<liftoff::vector> &get_forces();
 
-        void pre_compute() override;
-
-        virtual void compute_forces(double time_step);
-
-        void compute_motion(double time_step) override;
-
-        void post_compute() override;
-
-        void drive_derivatives(int driver_idx, double time_step) override;
-
-        void drive_integrals(int driver_idx, double time_step) override;
+        virtual void compute_forces();
     };
 }
 

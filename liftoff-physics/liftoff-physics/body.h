@@ -12,6 +12,7 @@ namespace liftoff {
         std::vector<liftoff::vector> d_mot;
 
         virtual void set_component(int derivative, const liftoff::vector &component);
+
     public:
         body(double mass, int derivatives);
 
@@ -23,7 +24,7 @@ namespace liftoff {
 
         virtual void pre_compute() = 0;
 
-        virtual void compute_motion(double time_step) = 0;
+        virtual void compute_motion() = 0;
 
         virtual void post_compute() = 0;
     };
