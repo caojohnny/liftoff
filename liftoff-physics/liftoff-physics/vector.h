@@ -1,5 +1,5 @@
-#ifndef LIFTOFF_VECTOR_H
-#define LIFTOFF_VECTOR_H
+#ifndef LIFTOFF_PHYSICS_VECTOR_H
+#define LIFTOFF_PHYSICS_VECTOR_H
 
 #include <string>
 
@@ -38,6 +38,8 @@ namespace liftoff {
         vector &mul(const vector &vec);
 
         vector &div(const vector &vec);
+
+        double magnitude() const;
 
         std::string to_string() const;
 
