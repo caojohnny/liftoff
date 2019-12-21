@@ -15,6 +15,7 @@ int main() {
     const liftoff::vector &v{d_mot[1]};
     const liftoff::vector &a{d_mot[2]};
 
+    const std::vector<double> &time = body.get_elapsed_times();
     const vector_record &pos_data = body.get_data(0);
     const vector_record &v_data = body.get_data(1);
     const vector_record &a_data = body.get_data(2);
@@ -22,13 +23,11 @@ int main() {
 
     // Initial state
     liftoff::vector w{0, -9.8 * body.get_mass(), 0};
+    forces.push_back(w);
     body.set_position({0, 20, 0});
     body.set_velocity({1, 20, 0});
-    forces.push_back(w);
-    body.clear_state_changes();
 
     int complete_ticks = 0;
-    std::vector<double> time;
     for (long long i = 1; i < LONG_LONG_MAX; ++i) {
         // Computation
         body.pre_compute();
@@ -62,15 +61,13 @@ int main() {
             break;
         }
 
-        // Data plotting
-        time.push_back(i * TIME_STEP);
-
         mpl::clf();
         mpl::named_plot("X vs Y", pos_data.get_x(), pos_data.get_y());
         mpl::named_plot("Y Velocity", time, v_data.get_y());
-        // mpl::named_plot("Y Acceleration", time, a_data.get_y());
-        // mpl::named_plot("X Velocity", time, v_data.get_x());
-        // mpl::named_plot("X Acceleration", time, a_data.get_x());
+        mpl::named_plot("Y Acceleration", time, a_data.get_y());
+        // mpl::named_plot("Y Jerk", time, j_data.get_y());
+        mpl::named_plot("X Velocity", time, v_data.get_x());
+        mpl::named_plot("X Acceleration", time, a_data.get_x());
         // mpl::named_plot("X Jerk", time, j_data.get_x());
         mpl::legend();
         mpl::pause(0.0000001);

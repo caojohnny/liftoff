@@ -20,7 +20,9 @@ void liftoff::driven_body::set_component(int derivative, const liftoff::vector &
     }
     body::set_component(derivative, component);
 
-    drive_derivatives(derivative);
+    if (!initial) {
+        drive_derivatives(derivative);
+    }
 }
 
 bool liftoff::driven_body::has_derivative_updated(int derivative) {
@@ -51,13 +53,9 @@ void liftoff::driven_body::drive_integrals(int driver_idx) {
     }
 }
 
-void liftoff::driven_body::clear_state_changes() {
-    for (int i = 0; i < d_mot.size(); ++i) {
-        prev_state[i].set(d_mot[i]);
-    }
-}
-
 void liftoff::driven_body::pre_compute() {
+    body::pre_compute();
+
     for (int i = 0; i < d_mot.size(); ++i) {
         if (!has_derivative_updated(i)) {
             prev_state[i].set(d_mot[i]);

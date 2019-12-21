@@ -22,6 +22,17 @@ void liftoff::force_driven_body::set_acceleration(const liftoff::vector &acceler
     set_component(2, acceleration);
 }
 
+void liftoff::force_driven_body::pre_compute() {
+    // Ensure driver forces are present for the
+    // initial conditions
+    if (initial) {
+        compute_forces();
+        updated_derivatives.clear();
+    }
+
+    driven_body::pre_compute();
+}
+
 void liftoff::force_driven_body::compute_forces() {
     if (d_mot.capacity() < 3) {
         return;

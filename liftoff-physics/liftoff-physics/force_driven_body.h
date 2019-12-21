@@ -22,6 +22,8 @@ namespace liftoff {
 
         std::vector<liftoff::vector> &get_forces();
 
+        void pre_compute() override;
+
         virtual void compute_forces();
     };
 }

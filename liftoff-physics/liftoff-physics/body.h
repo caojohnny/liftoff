@@ -8,6 +8,7 @@
 namespace liftoff {
     class body {
     protected:
+        bool initial{true};
         double mass;
         std::vector<liftoff::vector> d_mot;
 
@@ -22,7 +23,7 @@ namespace liftoff {
 
         const std::vector<liftoff::vector> &get_d_mot() const;
 
-        virtual void pre_compute() = 0;
+        virtual void pre_compute();
 
         virtual void compute_motion() = 0;
 

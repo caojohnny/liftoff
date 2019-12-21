@@ -26,8 +26,6 @@ namespace liftoff {
     public:
         explicit driven_body(double mass, int driver_idx, int derivatives = 4, double time_step = 1);
 
-        void clear_state_changes();
-
         void pre_compute() override;
 
         void compute_motion() override;

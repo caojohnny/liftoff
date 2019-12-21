@@ -26,3 +26,7 @@ void liftoff::body::set_component(int derivative, const liftoff::vector &compone
     liftoff::vector &cur{d_mot[derivative]};
     cur.set(component);
 }
+
+void liftoff::body::pre_compute() {
+    initial = false;
+}
