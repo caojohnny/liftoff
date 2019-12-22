@@ -2,6 +2,7 @@
 #define LIFTOFF_CLI_RECORDING_FDB_H
 
 #include <liftoff-physics/force_driven_body.h>
+#include <liftoff-physics/velocity_driven_body.h>
 
 class vector_record {
 private:
@@ -22,7 +23,7 @@ public:
     const std::vector<double> &get_magnitudes() const;
 };
 
-class recording_fdb : public liftoff::force_driven_body {
+class recording_fdb : public liftoff::velocity_driven_body {
 private:
     double cur_time{0};
     std::vector<double> elapsed_times;

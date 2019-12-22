@@ -8,7 +8,7 @@ get_filename_component(PARENT_DIR "${MODULE_DIR}" DIRECTORY)
 include(${PARENT_DIR}/cmake/DownloadMatplotlib.cmake)
 
 add_executable(liftoff-cli
-        main.cpp recording_fdb.cpp recording_fdb.h)
+        main.cpp recording_fdb.cpp recording_fdb.h thrust.cpp thrust.h)
 target_link_libraries(liftoff-cli
         PRIVATE liftoff-physics
         PRIVATE mpl)
