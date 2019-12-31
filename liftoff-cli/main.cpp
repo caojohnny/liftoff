@@ -1,11 +1,17 @@
 #include <mpl/matplotlibcpp.h>
 #include <liftoff-physics/body.h>
 #include "recording_fdb.h"
+#include "drag.h"
 
 namespace mpl = matplotlibcpp;
 
 static const long double TICKS_PER_SEC = 10;
 static const long double TIME_STEP = 1.0 / TICKS_PER_SEC;
+
+// https://space.stackexchange.com/questions/16883/whats-the-atmospheric-drag-coefficient-of-a-falcon-9-at-launch-sub-sonic-larg#16885
+static const double F9_CD = 0.25;
+// https://www.spacex.com/sites/spacex/files/falcon_users_guide_10_2019.pdf
+static const double F9_A = M_PI * 2.6 * 2.6;
 
 static long double to_ticks(int seconds) {
     return seconds * TICKS_PER_SEC;
@@ -72,6 +78,9 @@ int main() {
     // forces.push_back(w);
     // forces.push_back(n);
 
+    std::vector<double> recorded_drag;
+    recorded_drag.push_back(0);
+
     int complete_ticks = 0;
     for (long double i = 1; i < to_ticks(3, 0); ++i) {
         // Normal force computation
@@ -126,6 +135,10 @@ int main() {
         drive_velocity(body, i, 170, 33, 8148);
         drive_velocity(body, i, 175, 34, 8232);
 
+        double drag_y = calc_drag_earth(F9_CD, pos.get_y(), v.get_y(), F9_A);
+        liftoff::vector cur_drag{0, drag_y, 0};
+        recorded_drag.push_back(cur_drag.get_y());
+
         // body.compute_forces();
         body.compute_motion();
 
@@ -143,6 +156,7 @@ int main() {
             // mpl::named_plot("Y Position", time, pos_data.get_y());
             mpl::named_plot("Y Velocity", time, v_data.get_y());
             mpl::named_plot("Y Acceleration", time, a_data.get_y());
+            mpl::named_plot("Y Drag", time, recorded_drag);
             // mpl::named_plot("Y Jerk", time, j_data.get_y());
             // mpl::named_plot("X Velocity", time, v_data.get_x());
             // mpl::named_plot("X Acceleration", time, a_data.get_x());
@@ -154,9 +168,10 @@ int main() {
 
     mpl::clf();
     // mpl::named_plot("X vs Y", pos_data.get_x(), pos_data.get_y());
-    // mpl::named_plot("Y Position", time, pos_data.get_y());
+    mpl::named_plot("Y Position", time, pos_data.get_y());
     mpl::named_plot("Y Velocity", time, v_data.get_y());
-    mpl::named_plot("Y Acceleration", time, a_data.get_y());
+    mpl::named_plot("Y Drag", time, recorded_drag);
+    // mpl::named_plot("Y Acceleration", time, a_data.get_y());
     // mpl::named_plot("Y Jerk", time, j_data.get_y());
     // mpl::named_plot("X Velocity", time, v_data.get_x());
     // mpl::named_plot("X Acceleration", time, a_data.get_x());
