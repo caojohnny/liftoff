@@ -4,11 +4,11 @@ include(FetchContent)
 FetchContent_GetProperties(mpl)
 
 if (NOT mpl_POPULATED)
-    find_package(PythonLibs 2.7)
+    find_package(Python2 COMPONENTS Development NumPy)
     FetchContent_Declare(
             mpl
             URL https://github.com/lava/matplotlib-cpp/archive/master.zip
-            URL_HASH SHA256=5fd300ff30adc220c417d0de672e15d702cf7a3629ec4a91f161378a36f87318
+            URL_HASH SHA256=40a302a3a4f4d318fdbdfb592bf8989750b6b54338d5bd3cefa8fa3e452c248a
     )
     FetchContent_Populate(mpl)
 
@@ -18,7 +18,9 @@ if (NOT mpl_POPULATED)
     add_library(mpl INTERFACE IMPORTED)
     target_include_directories(mpl
             INTERFACE "${mpl_BINARY_DIR}/include/"
-            INTERFACE "${PYTHON_INCLUDE_DIRS}")
+            INTERFACE "${PYTHON_INCLUDE_DIRS}"
+            INTERFACE "${Python2_NumPy_INCLUDE_DIRS}")
     target_link_libraries(mpl
-            INTERFACE "${PYTHON_LIBRARIES}")
+            INTERFACE Python2::Python
+            INTERFACE Python2::NumPy)
 endif ()
