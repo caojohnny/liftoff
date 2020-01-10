@@ -129,7 +129,7 @@ int main() {
         double y_velocity = profile.get_velocity();
         profile.step();
         if (!isnan(y_velocity)) {
-            body.set_velocity({0, y_velocity, 0});
+            body.set_velocity({0, to_mps(y_velocity), 0});
         }
 
         double drag_y = liftoff::calc_drag_earth(F9_CD, pos.get_y(), v.magnitude(), F9_A);
