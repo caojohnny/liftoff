@@ -2,7 +2,7 @@
 #include "drag.h"
 
 // https://www.grc.nasa.gov/WWW/K-12/airplane/drageq.html
-double calc_drag(double cd, double rho, double v, double a) {
+double liftoff::calc_drag(double cd, double rho, double v, double a) {
     return cd * rho * v * v / 2 * a;
 }
 
@@ -12,7 +12,7 @@ static double calc_rho_ideal_state(double p, double T) {
 }
 
 // https://www.grc.nasa.gov/WWW/K-12/airplane/atmosmet.html#
-double calc_rho_earth(double alt) {
+double liftoff::calc_rho_earth(double alt) {
     if (alt >= 25000) {
         double T = -131.21 + .00299 * alt;
         double p = 2.488 * pow((T + 273.1) / 216.6, -11.388);
@@ -30,6 +30,6 @@ double calc_rho_earth(double alt) {
     return -1;
 }
 
-double calc_drag_earth(double cd, double alt, double v, double a) {
+double liftoff::calc_drag_earth(double cd, double alt, double v, double a) {
     return calc_drag(cd, calc_rho_earth(alt), v, a);
 }

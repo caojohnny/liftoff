@@ -1,7 +1,8 @@
 #include <mpl/matplotlibcpp.h>
 #include <liftoff-physics/body.h>
 #include "recording_fdb.h"
-#include "drag.h"
+#include "liftoff-physics/drag.h"
+#include "telemetry_flight_profile.h"
 
 namespace mpl = matplotlibcpp;
 
@@ -25,23 +26,6 @@ static double to_mps(double kmh) {
     return kmh * 1000 / 3600;
 }
 
-static int ev_counter = 0;
-
-static void drive_velocity(recording_fdb &body, long double ticks, int time, int ev_num, double kmh) {
-    if (ticks >= to_ticks(time) && ev_counter == ev_num) {
-        body.set_velocity({0, to_mps(kmh), 0});
-        ev_counter++;
-
-        if (ev_counter == 15) {
-            std::cout << "Max-Q @ " << ticks / TICKS_PER_SEC << std::endl;
-        }
-
-        if (ev_counter == 31) {
-            std::cout << "MECO @ " << ticks / TICKS_PER_SEC << std::endl;
-        }
-    }
-}
-
 static recording_fdb setup_rocket() {
     // Source: https://www.spaceflightinsider.com/hangar/falcon-9/
     const double stage_1_dry_mass_kg = 25600;
@@ -58,8 +42,52 @@ static recording_fdb setup_rocket() {
     return body;
 }
 
+static telemetry_flight_profile setup_flight_profile(telemetry_flight_profile &profile) {
+    // JCSAT-18/KACIFIC1
+    profile.put_velocity(5, 28);
+    profile.put_velocity(10, 98);
+    profile.put_velocity(15, 178);
+    profile.put_velocity(20, 264);
+    profile.put_velocity(25, 355);
+    profile.put_velocity(30, 458);
+    profile.put_velocity(35, 567);
+    profile.put_velocity(40, 684);
+    profile.put_velocity(45, 816);
+    profile.put_velocity(50, 931);
+    profile.put_velocity(55, 1013);
+    profile.put_velocity(60, 1109);
+    profile.put_velocity(65, 1275);
+    profile.put_velocity(70, 1454);
+    profile.put_velocity(75, 1658);
+    profile.put_velocity(80, 1868);
+    profile.put_velocity(85, 2106);
+    profile.put_velocity(90, 2359);
+    profile.put_velocity(95, 2644);
+    profile.put_velocity(100, 2951);
+    profile.put_velocity(105, 3290);
+    profile.put_velocity(110, 3649);
+    profile.put_velocity(115, 4040);
+    profile.put_velocity(120, 4458);
+    profile.put_velocity(125, 4896);
+    profile.put_velocity(130, 5367);
+    profile.put_velocity(135, 5874);
+    profile.put_velocity(140, 6428);
+    profile.put_velocity(145, 7012);
+    profile.put_velocity(150, 7559);
+    profile.put_velocity(155, 8139);
+    profile.put_velocity(160, 8180);
+    profile.put_velocity(165, 8114);
+    profile.put_velocity(170, 8148);
+    profile.put_velocity(175, 8232);
+
+    return profile;
+}
+
 int main() {
     recording_fdb body{setup_rocket()};
+    telemetry_flight_profile profile{static_cast<double>(TIME_STEP)};
+    setup_flight_profile(profile);
+
     // std::vector<liftoff::vector> &forces = body.get_forces();
     const std::vector<liftoff::vector> &d_mot{body.get_d_mot()};
     const liftoff::vector &pos{d_mot[0]};
@@ -98,44 +126,13 @@ int main() {
         // Computation
         body.pre_compute();
 
-        // JCSAT-18/KACIFIC1
-        drive_velocity(body, i, 5, 0, 28);
-        drive_velocity(body, i, 10, 1, 98);
-        drive_velocity(body, i, 15, 2, 178);
-        drive_velocity(body, i, 20, 3, 264);
-        drive_velocity(body, i, 25, 4, 355);
-        drive_velocity(body, i, 30, 5, 458);
-        drive_velocity(body, i, 35, 6, 567);
-        drive_velocity(body, i, 40, 7, 684);
-        drive_velocity(body, i, 45, 8, 816);
-        drive_velocity(body, i, 50, 9, 931);
-        drive_velocity(body, i, 55, 10, 1013);
-        drive_velocity(body, i, 60, 11, 1109);
-        drive_velocity(body, i, 65, 12, 1275);
-        drive_velocity(body, i, 70, 13, 1454);
-        drive_velocity(body, i, 75, 14, 1658);
-        drive_velocity(body, i, 80, 15, 1868);
-        drive_velocity(body, i, 85, 16, 2106);
-        drive_velocity(body, i, 90, 17, 2359);
-        drive_velocity(body, i, 95, 18, 2644);
-        drive_velocity(body, i, 100, 19, 2951);
-        drive_velocity(body, i, 105, 20, 3290);
-        drive_velocity(body, i, 110, 21, 3649);
-        drive_velocity(body, i, 115, 22, 4040);
-        drive_velocity(body, i, 120, 23, 4458);
-        drive_velocity(body, i, 125, 24, 4896);
-        drive_velocity(body, i, 130, 25, 5367);
-        drive_velocity(body, i, 135, 26, 5874);
-        drive_velocity(body, i, 140, 27, 6428);
-        drive_velocity(body, i, 145, 28, 7012);
-        drive_velocity(body, i, 150, 29, 7559);
-        drive_velocity(body, i, 155, 30, 8139);
-        drive_velocity(body, i, 160, 31, 8180);
-        drive_velocity(body, i, 165, 32, 8114);
-        drive_velocity(body, i, 170, 33, 8148);
-        drive_velocity(body, i, 175, 34, 8232);
+        double y_velocity = profile.get_velocity();
+        profile.step();
+        if (!isnan(y_velocity)) {
+            body.set_velocity({0, y_velocity, 0});
+        }
 
-        double drag_y = calc_drag_earth(F9_CD, pos.get_y(), v.get_y(), F9_A);
+        double drag_y = liftoff::calc_drag_earth(F9_CD, pos.get_y(), v.magnitude(), F9_A);
         liftoff::vector cur_drag{0, drag_y, 0};
         recorded_drag.push_back(cur_drag.get_y());
 
