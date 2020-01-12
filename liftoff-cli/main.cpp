@@ -80,6 +80,42 @@ static telemetry_flight_profile setup_flight_profile(telemetry_flight_profile &p
     profile.put_velocity(170, 8148);
     profile.put_velocity(175, 8232);
 
+    profile.put_altitude(5, 0);
+    profile.put_altitude(10, 0.1);
+    profile.put_altitude(15, 0.3);
+    profile.put_altitude(20, 0.6);
+    profile.put_altitude(25, 1.0);
+    profile.put_altitude(30, 1.6);
+    profile.put_altitude(35, 2.3);
+    profile.put_altitude(40, 3.2);
+    profile.put_altitude(45, 4.2);
+    profile.put_altitude(50, 5.3);
+    profile.put_altitude(55, 6.6);
+    profile.put_altitude(60, 7.9);
+    profile.put_altitude(65, 9.4);
+    profile.put_altitude(70, 10.9);
+    profile.put_altitude(75, 12.7);
+    profile.put_altitude(80, 14.6);
+    profile.put_altitude(85, 16.7);
+    profile.put_altitude(90, 18.8);
+    profile.put_altitude(95, 21.2);
+    profile.put_altitude(100, 23.6);
+    profile.put_altitude(105, 26.2);
+    profile.put_altitude(110, 29.1);
+    profile.put_altitude(115, 32.0);
+    profile.put_altitude(20, 35.2);
+    profile.put_altitude(25, 38.5);
+    profile.put_altitude(30, 42.1);
+    profile.put_altitude(35, 45.9);
+    profile.put_altitude(40, 49.9);
+    profile.put_altitude(45, 54.1);
+    profile.put_altitude(50, 58.5);
+    profile.put_altitude(55, 63.1);
+    profile.put_altitude(60, 67.7);
+    profile.put_altitude(65, 72.0);
+    profile.put_altitude(70, 76.2);
+    profile.put_altitude(75, 80.2);
+
     return profile;
 }
 
@@ -126,11 +162,12 @@ int main() {
         // Computation
         body.pre_compute();
 
-        double y_velocity = profile.get_velocity();
-        profile.step();
-        if (!isnan(y_velocity)) {
-            body.set_velocity({0, to_mps(y_velocity), 0});
+        double telem_velocity = profile.get_velocity();
+        if (!isnan(telem_velocity)) {
+            body.set_velocity({0, to_mps(telem_velocity), 0});
         }
+
+        profile.step();
 
         double drag_y = liftoff::calc_drag_earth(F9_CD, pos.get_y(), v.magnitude(), F9_A);
         liftoff::vector cur_drag{0, drag_y, 0};
@@ -166,8 +203,8 @@ int main() {
     mpl::clf();
     // mpl::named_plot("X vs Y", pos_data.get_x(), pos_data.get_y());
     mpl::named_plot("Y Position", time, pos_data.get_y());
-    mpl::named_plot("Y Velocity", time, v_data.get_y());
-    mpl::named_plot("Y Drag", time, recorded_drag);
+    // mpl::named_plot("Y Velocity", time, v_data.get_y());
+    // mpl::named_plot("Y Drag", time, recorded_drag);
     // mpl::named_plot("Y Acceleration", time, a_data.get_y());
     // mpl::named_plot("Y Jerk", time, j_data.get_y());
     // mpl::named_plot("X Velocity", time, v_data.get_x());
