@@ -4,6 +4,10 @@
 telemetry_flight_profile::telemetry_flight_profile(double time_step) : time_step(time_step) {
 }
 
+void telemetry_flight_profile::set_ballistic_range(double range) {
+    telemetry_flight_profile::ballistic_range = range;
+}
+
 void telemetry_flight_profile::put_velocity(double time, double velocity) {
     telemetry_flight_profile::velocity[time] = velocity;
 }
@@ -40,4 +44,8 @@ double telemetry_flight_profile::get_altitude() const {
 
 void telemetry_flight_profile::reset() {
     current_time = 0;
+}
+
+double telemetry_flight_profile::get_downrange_distance() const {
+    return ballistic_range * time_step;
 }

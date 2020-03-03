@@ -23,7 +23,7 @@ public:
     const std::vector<double> &get_magnitudes() const;
 };
 
-class recording_fdb : public liftoff::velocity_driven_body {
+class recording_fdb : public liftoff::force_driven_body {
 private:
     double cur_time{0};
     std::vector<double> elapsed_times;

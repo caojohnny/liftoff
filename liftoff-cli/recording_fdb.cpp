@@ -1,7 +1,7 @@
 #include "recording_fdb.h"
 
 recording_fdb::recording_fdb(double mass, int derivatives, double time_step) :
-        liftoff::velocity_driven_body(mass, derivatives, time_step) {
+        liftoff::force_driven_body(mass, derivatives, time_step) {
     for (int i = 0; i < derivatives; ++i) {
         data.emplace_back();
     }
@@ -17,7 +17,7 @@ const vector_record &recording_fdb::get_data(int derivative) const {
 
 void recording_fdb::pre_compute() {
     bool initial{body::initial};
-    driven_body::pre_compute();
+    force_driven_body::pre_compute();
 
     // Record the initial state vectors
     if (initial) {
@@ -31,7 +31,7 @@ void recording_fdb::pre_compute() {
 }
 
 void recording_fdb::post_compute() {
-    driven_body::post_compute();
+    force_driven_body::post_compute();
 
     elapsed_times.push_back(cur_time);
     for (int i = 0; i < d_mot.size(); ++i) {

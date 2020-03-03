@@ -33,8 +33,8 @@ void liftoff::driven_body::drive_derivatives(int driver_idx) {
     liftoff::vector time_v{time_step};
 
     for (int i = driver_idx + 1; i < d_mot.size(); ++i) {
-        liftoff::vector &prev_driving_vec{prev_state[i - 1]};
-        liftoff::vector &cur_driving_vec{d_mot[i - 1]};
+        const liftoff::vector &prev_driving_vec{prev_state[i - 1]};
+        const liftoff::vector &cur_driving_vec{d_mot[i - 1]};
         d_mot[i].set(cur_driving_vec).sub(prev_driving_vec).div(time_v);
     }
 }
@@ -48,7 +48,7 @@ void liftoff::driven_body::drive_integrals(int driver_idx) {
     }
 
     for (int i = driver_idx - 1; i >= 0; --i) {
-        liftoff::vector cur_driving_vec{adjusted_mot[i + 1]};
+        const liftoff::vector cur_driving_vec{adjusted_mot[i + 1]};
         d_mot[i].add(cur_driving_vec);
     }
 }

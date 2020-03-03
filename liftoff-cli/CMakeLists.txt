@@ -10,7 +10,7 @@ include(${PARENT_DIR}/cmake/DownloadMatplotlib.cmake)
 add_executable(liftoff-cli
         main.cpp
         recording_fdb.cpp recording_fdb.h
-        thrust.cpp thrust.h telemetry_flight_profile.cpp telemetry_flight_profile.h)
+        thrust.cpp thrust.h telemetry_flight_profile.cpp telemetry_flight_profile.h rocket.cpp rocket.h recording_vdb.cpp recording_vdb.h)
 target_link_libraries(liftoff-cli
         PRIVATE liftoff-physics
         PRIVATE mpl)

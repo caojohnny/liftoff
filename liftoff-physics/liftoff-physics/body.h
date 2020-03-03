@@ -17,7 +17,7 @@ namespace liftoff {
     public:
         body(double mass, int derivatives);
 
-        double get_mass() const;
+        virtual double get_mass() const;
 
         void set_mass(double mass);
 
