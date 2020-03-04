@@ -19,7 +19,7 @@ static const double ACCEL_G = 9.80665;
 static const double F9_CD = 0.25;
 // Frontal surface area, m^2
 // https://www.spacex.com/sites/spacex/files/falcon_users_guide_10_2019.pdf
-static const double F9_A = M_PI * 4.6 * 4.6;
+static const double F9_A = M_PI * 2.6 * 2.6;
 
 // Merlin 1D Max Thrust @ SL, N
 // https://www.spacex.com/sites/spacex/files/falcon_users_guide_10_2019.pdf
@@ -155,29 +155,11 @@ void run_telemetry_profile() {
     const vector_record &a_data = body.get_data(2);
     const vector_record &j_data = body.get_data(3);
 
-    // Initial state
-    liftoff::vector w{0, -ACCEL_G * body.get_mass(), 0};
-    liftoff::vector n{0, ACCEL_G * body.get_mass(), 0};
-    // forces.push_back(w);
-    // forces.push_back(n);
-
     std::vector<double> recorded_drag;
     recorded_drag.push_back(0);
 
     int complete_ticks = 0;
     for (long double i = 1; i < 3 * 60 / time_step; ++i) {
-        // Normal force computation
-        /* if (pos.get_y() <= 0) {
-            forces.erase(std::find(forces.begin(), forces.end(), n), forces.end());
-
-            liftoff::vector net_force;
-            for (const auto &force : forces) {
-                net_force.add(force);
-            }
-
-            forces.emplace_back(0, -net_force.get_y(), 0);
-        } */
-
         // Computation
         body.pre_compute();
 
@@ -192,11 +174,10 @@ void run_telemetry_profile() {
         liftoff::vector cur_drag{0, drag_y, 0};
         recorded_drag.push_back(cur_drag.get_y());
 
-        // body.compute_forces();
         body.compute_motion();
 
         // Completion logic
-        if (pos.get_y() <= 0 && complete_ticks == 0) {
+        if (pos.get_y() < 0 && complete_ticks == 0) {
             body.set_velocity({});
         }
 
@@ -222,10 +203,10 @@ void run_telemetry_profile() {
     mpl::clf();
     // mpl::named_plot("X vs Y", pos_data.get_x(), pos_data.get_y());
     // mpl::named_plot("Y Position", time, pos_data.get_y());
-    mpl::named_plot("Y Velocity", time, v_data.get_y());
+    // mpl::named_plot("Y Velocity", time, v_data.get_y());
     // mpl::named_plot("Y Drag", time, recorded_drag);
     // mpl::named_plot("Y Acceleration", time, a_data.get_y());
-    // mpl::named_plot("Y Jerk", time, j_data.get_y());
+    mpl::named_plot("Y Jerk", time, j_data.get_y());
     // mpl::named_plot("X Velocity", time, v_data.get_x());
     // mpl::named_plot("X Acceleration", time, a_data.get_x());
     // mpl::named_plot("X Jerk", time, j_data.get_x());
@@ -316,7 +297,7 @@ void run_test_rocket() {
 
         if (i >= 0) {
             for (auto &e : cur_engines) {
-                e.throttle(.68);
+                e.throttle(.67);
             }
         }
 
@@ -366,7 +347,7 @@ void run_test_rocket() {
     mpl::clf();
     // mpl::named_plot("X vs Y", pos_data.get_x(), pos_data.get_y());
     // mpl::named_plot("Y Position", time, pos_data.get_y());
-    // mpl::named_plot("Y Velocity", time, v_data.get_y());
+    mpl::named_plot("Y Velocity", time, v_data.get_y());
     // mpl::named_plot("Y Drag", time, recorded_drag);
     // mpl::named_plot("Y Acceleration", time, a_data.get_y());
     // mpl::named_plot("Y Jerk", time, j_data.get_y());
@@ -378,7 +359,7 @@ void run_test_rocket() {
 }
 
 int main() {
-    // run_telemetry_profile();
+    run_telemetry_profile();
     run_test_rocket();
 
     return 0;
