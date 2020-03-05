@@ -43,6 +43,6 @@ void liftoff::force_driven_body::compute_forces() {
         net_force.add(force);
     }
 
-    liftoff::vector mass_v{mass};
+    liftoff::vector mass_v{get_mass()};
     set_acceleration(net_force.div(mass_v));
 }

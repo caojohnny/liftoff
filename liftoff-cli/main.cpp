@@ -1,13 +1,14 @@
-#include <mpl/matplotlibcpp.h>
 #include <liftoff-physics/body.h>
+#include <iostream>
 #include "recording_fdb.h"
 #include "liftoff-physics/drag.h"
 #include "telemetry_flight_profile.h"
 #include "thrust.h"
 #include "rocket.h"
 #include "recording_vdb.h"
-
-namespace mpl = matplotlibcpp;
+#include "data_plotter.h"
+#include <TAxis.h>
+#include <TSystem.h>
 
 static const long double TICKS_PER_SEC = 5;
 static const long double TIME_STEP = 1.0 / TICKS_PER_SEC;
@@ -137,29 +138,55 @@ void run_telemetry_profile() {
                         stage_2_dry_mass_kg + stage_2_fuel_mass_kg +
                         payload_mass_kg;
 
-    double time_step = 5;
-    recording_vdb body{total_mass, 4, time_step};
+    recording_vdb body{total_mass, 4, static_cast<double>(TIME_STEP)};
 
-    telemetry_flight_profile profile{static_cast<double>(time_step)};
+    telemetry_flight_profile profile{static_cast<double>(TIME_STEP)};
     setup_flight_profile(profile);
 
-    // std::vector<liftoff::vector> &forces = body.get_forces();
     const std::vector<liftoff::vector> &d_mot{body.get_d_mot()};
-    const liftoff::vector &pos{d_mot[0]};
+
+    // Telemetry
+    const liftoff::vector &y{d_mot[0]};
     const liftoff::vector &v{d_mot[1]};
     const liftoff::vector &a{d_mot[2]};
+    const liftoff::vector &j{d_mot[3]};
 
-    const std::vector<double> &time = body.get_elapsed_times();
-    const vector_record &pos_data = body.get_data(0);
-    const vector_record &v_data = body.get_data(1);
-    const vector_record &a_data = body.get_data(2);
-    const vector_record &j_data = body.get_data(3);
+    // Plotting
+    int fake_argc = 0;
+    char *fake_argv[0];
+    const char *app_name = "SpaceX JCSAT-18/KACIFC1 Flight Sim";
+    TApplication app(app_name, &fake_argc, fake_argv);
+    data_plotter plotter(app, app_name, 2, 2);
+
+    TGraph *y_plot = new TGraph();
+    y_plot->SetTitle("Altitude");
+    y_plot->GetYaxis()->SetTitle("Altitude (meters)");
+    TGraph *v_plot = new TGraph();
+    v_plot->SetTitle("Velocity");
+    v_plot->GetYaxis()->SetTitle("Y Velocity (meters/second)");
+    TGraph *a_plot = new TGraph();
+    a_plot->SetTitle("Acceleration");
+    a_plot->GetYaxis()->SetTitle("Y Accleration (meters/second^2)");
+    TGraph *j_plot = new TGraph();
+    j_plot->SetTitle("Jerk");
+    j_plot->GetYaxis()->SetTitle("Y Jerk (meters/second^3)");
+
+    plotter.add_plot(y_plot);
+    plotter.add_plot(v_plot);
+    plotter.add_plot(a_plot);
+    plotter.add_plot(j_plot);
+
+    for (int i = 1; i <= 4; ++i) {
+        TGraph *plot = plotter.get_plot(i);
+        plot->GetXaxis()->SetTitle("Time (seconds)");
+    }
 
     std::vector<double> recorded_drag;
     recorded_drag.push_back(0);
 
     int complete_ticks = 0;
-    for (long double i = 1; i < 3 * 60 / time_step; ++i) {
+    int pause_ticks = 0;
+    for (long double i = 1; i < to_ticks(200); ++i) {
         // Computation
         body.pre_compute();
 
@@ -170,48 +197,45 @@ void run_telemetry_profile() {
 
         profile.step();
 
-        double drag_y = liftoff::calc_drag_earth(F9_CD, pos.get_y(), v.magnitude(), F9_A);
+        double drag_y = liftoff::calc_drag_earth(F9_CD, y.get_y(), v.magnitude(), F9_A);
         liftoff::vector cur_drag{0, drag_y, 0};
         recorded_drag.push_back(cur_drag.get_y());
 
         body.compute_motion();
 
         // Completion logic
-        if (pos.get_y() < 0 && complete_ticks == 0) {
+        if (y.get_y() < 0 && complete_ticks == 0) {
             body.set_velocity({});
         }
 
         body.post_compute();
 
+        if (!plotter.is_valid()) {
+            break;
+        }
+
         // Plotting
-        if ((long) i % (long) TICKS_PER_SEC == 0) {
-            // mpl::clf();
-            // mpl::named_plot("X vs Y", pos_data.get_x(), pos_data.get_y());
-            // mpl::named_plot("Y Position", time, pos_data.get_y());
-            // mpl::named_plot("Y Velocity", time, v_data.get_y());
-            // mpl::named_plot("Y Acceleration", time, a_data.get_y());
-            // mpl::named_plot("Y Drag", time, recorded_drag);
-            // mpl::named_plot("Y Jerk", time, j_data.get_y());
-            // mpl::named_plot("X Velocity", time, v_data.get_x());
-            // mpl::named_plot("X Acceleration", time, a_data.get_x());
-            // mpl::named_plot("X Jerk", time, j_data.get_x());
-            // mpl::legend();
-            // mpl::pause(0.0000001);
+        double cur_time_s = i * TIME_STEP;
+        y_plot->SetPoint(i, cur_time_s, y.get_y());
+        v_plot->SetPoint(i, cur_time_s, v.get_y());
+        a_plot->SetPoint(i, cur_time_s, a.get_y());
+        j_plot->SetPoint(i, cur_time_s, j.get_y());
+
+        plotter.ensure_open_loop(false);
+
+        pause_ticks++;
+        if (pause_ticks >= 500) {
+            plotter.update_plots();
+            plotter.await(1000000);
+
+            pause_ticks = 0;
         }
     }
 
-    mpl::clf();
-    // mpl::named_plot("X vs Y", pos_data.get_x(), pos_data.get_y());
-    // mpl::named_plot("Y Position", time, pos_data.get_y());
-    // mpl::named_plot("Y Velocity", time, v_data.get_y());
-    // mpl::named_plot("Y Drag", time, recorded_drag);
-    // mpl::named_plot("Y Acceleration", time, a_data.get_y());
-    mpl::named_plot("Y Jerk", time, j_data.get_y());
-    // mpl::named_plot("X Velocity", time, v_data.get_x());
-    // mpl::named_plot("X Acceleration", time, a_data.get_x());
-    // mpl::named_plot("X Jerk", time, j_data.get_x());
-    mpl::legend();
-    mpl::show();
+    plotter.update_plots();
+    while (plotter.is_valid()) {
+        plotter.ensure_open_loop(true);
+    }
 }
 
 void run_test_rocket() {
@@ -236,15 +260,41 @@ void run_test_rocket() {
     std::vector<liftoff::vector> &forces = body.get_forces();
     const std::vector<liftoff::vector> &d_mot{body.get_d_mot()};
 
-    const liftoff::vector &pos{d_mot[0]};
+    // Telemetry
+    const liftoff::vector &y{d_mot[0]};
     const liftoff::vector &v{d_mot[1]};
     const liftoff::vector &a{d_mot[2]};
+    const liftoff::vector &j{d_mot[3]};
 
-    const std::vector<double> &time = body.get_elapsed_times();
-    const vector_record &pos_data = body.get_data(0);
-    const vector_record &v_data = body.get_data(1);
-    const vector_record &a_data = body.get_data(2);
-    const vector_record &j_data = body.get_data(3);
+    // Plotting
+    int fake_argc = 0;
+    char *fake_argv[0];
+    const char *app_name = "SpaceX JCSAT-18/KACIFC1 Flight Sim";
+    TApplication app(app_name, &fake_argc, fake_argv);
+    data_plotter plotter(app, app_name, 2, 2);
+
+    TGraph *y_plot = new TGraph();
+    y_plot->SetTitle("Altitude");
+    y_plot->GetYaxis()->SetTitle("Altitude (meters)");
+    TGraph *v_plot = new TGraph();
+    v_plot->SetTitle("Velocity");
+    v_plot->GetYaxis()->SetTitle("Y Velocity (meters/second)");
+    TGraph *a_plot = new TGraph();
+    a_plot->SetTitle("Acceleration");
+    a_plot->GetYaxis()->SetTitle("Y Accleration (meters/second^2)");
+    TGraph *j_plot = new TGraph();
+    j_plot->SetTitle("Atmospheric Drag");
+    j_plot->GetYaxis()->SetTitle("Drag Force (Newtons)");
+
+    plotter.add_plot(y_plot);
+    plotter.add_plot(v_plot);
+    plotter.add_plot(a_plot);
+    plotter.add_plot(j_plot);
+
+    for (int i = 1; i <= 4; ++i) {
+        TGraph *plot = plotter.get_plot(i);
+        plot->GetXaxis()->SetTitle("Time (seconds)");
+    }
 
     // Initial state
     liftoff::vector w{0, -ACCEL_G * body.get_mass(), 0};
@@ -255,25 +305,30 @@ void run_test_rocket() {
 
     liftoff::vector cached_n = n;
 
-    std::vector<double> recorded_drag;
-    recorded_drag.push_back(0);
-
-    int complete_ticks = 0;
-    for (long double i = 1; i < to_ticks(3, 0); ++i) {
-        // Normal force computation
-        if (pos.get_y() <= 0) {
-            auto find = std::find(forces.begin(), forces.end(), cached_n);
-
-            liftoff::vector net_force;
-            for (const auto &force : forces) {
-                net_force.add(force);
-            }
-
-            *find = cached_n = net_force;
-        }
-
+    int pause_ticks = 0;
+    long double sim_duration_ticks = to_ticks(200); // to_ticks(12, 0);
+    for (long double i = 1; i < sim_duration_ticks; ++i) {
         // Computation
         body.pre_compute();
+
+        // Normal force computation
+        auto find_n = std::find(forces.begin(), forces.end(), cached_n);
+
+        liftoff::vector new_n;
+        if (y.get_y() < 0) {
+            for (const auto &force : forces) {
+                if (force.get_y() < 0) {
+                    new_n.add({0, -force.get_y(), 0});
+                }
+            }
+
+            // Hitting the ground
+            if (v.get_y() < 0) {
+                body.set_velocity({});
+            }
+        }
+
+        *find_n = cached_n = new_n;
 
         // Recompute weight vector
         double cur_mass = body.get_mass();
@@ -281,10 +336,11 @@ void run_test_rocket() {
         forces.at(0) = cur_weight;
 
         // Recompute drag for new velocity
-        double drag_y = liftoff::calc_drag_earth(F9_CD, pos.get_y(), v.magnitude(), F9_A);
-        liftoff::vector cur_drag{0, -drag_y, 0};
+        double v_mag = v.magnitude();
+        double drag_y = liftoff::calc_drag_earth(F9_CD, y.get_y(), v_mag, F9_A);
+        int signum = (v_mag > 0) - (v_mag < 0);
+        liftoff::vector cur_drag{0, signum * drag_y, 0};
         forces.at(2) = cur_drag;
-        recorded_drag.push_back(cur_drag.get_y());
 
         // Recompute thrust
         liftoff::vector cur_thrust;
@@ -297,7 +353,7 @@ void run_test_rocket() {
 
         if (i >= 0) {
             for (auto &e : cur_engines) {
-                e.throttle(.67);
+                e.throttle(.81);
             }
         }
 
@@ -319,47 +375,39 @@ void run_test_rocket() {
 
         body.compute_forces();
         body.compute_motion();
-
-        // Completion logic
-        if (pos.get_y() < 0 && complete_ticks == 0) {
-            body.set_velocity({});
-        }
-
         body.post_compute();
 
-        // Plotting
-        if ((long) i % (long) TICKS_PER_SEC == 0) {
-            // mpl::clf();
-            // mpl::named_plot("X vs Y", pos_data.get_x(), pos_data.get_y());
-            // mpl::named_plot("Y Position", time, pos_data.get_y());
-            // mpl::named_plot("Y Velocity", time, v_data.get_y());
-            // mpl::named_plot("Y Acceleration", time, a_data.get_y());
-            // mpl::named_plot("Y Drag", time, recorded_drag);
-            // mpl::named_plot("Y Jerk", time, j_data.get_y());
-            // mpl::named_plot("X Velocity", time, v_data.get_x());
-            // mpl::named_plot("X Acceleration", time, a_data.get_x());
-            // mpl::named_plot("X Jerk", time, j_data.get_x());
-            // mpl::legend();
-            // mpl::pause(0.0000001);
+        if (!plotter.is_valid()) {
+            break;
+        }
+
+        double cur_time_s = i * TIME_STEP;
+        y_plot->SetPoint(i, cur_time_s, y.get_y());
+        v_plot->SetPoint(i, cur_time_s, v.get_y());
+        a_plot->SetPoint(i, cur_time_s, a.get_y());
+        j_plot->SetPoint(i, cur_time_s, drag_y);
+
+        plotter.ensure_open_loop(false);
+
+        pause_ticks++;
+        if (pause_ticks >= 1000) {
+            plotter.update_plots();
+            plotter.await(1000000);
+
+            pause_ticks = 0;
         }
     }
 
-    mpl::clf();
-    // mpl::named_plot("X vs Y", pos_data.get_x(), pos_data.get_y());
-    // mpl::named_plot("Y Position", time, pos_data.get_y());
-    mpl::named_plot("Y Velocity", time, v_data.get_y());
-    // mpl::named_plot("Y Drag", time, recorded_drag);
-    // mpl::named_plot("Y Acceleration", time, a_data.get_y());
-    // mpl::named_plot("Y Jerk", time, j_data.get_y());
-    // mpl::named_plot("X Velocity", time, v_data.get_x());
-    // mpl::named_plot("X Acceleration", time, a_data.get_x());
-    // mpl::named_plot("X Jerk", time, j_data.get_x());
-    mpl::legend();
-    mpl::show();
+    plotter.update_plots();
+    std::cout << "Remaining propellant: " << body.get_prop_mass() << "kg" << std::endl;
+
+    while (plotter.is_valid()) {
+        plotter.ensure_open_loop(true);
+    }
 }
 
 int main() {
-    run_telemetry_profile();
+    // run_telemetry_profile();
     run_test_rocket();
 
     return 0;
