@@ -9,9 +9,10 @@
 #include "data_plotter.h"
 #include <TAxis.h>
 #include <TSystem.h>
+#include <TROOT.h>
 
-static const long double TICKS_PER_SEC = 5;
-static const long double TIME_STEP = 1.0 / TICKS_PER_SEC;
+static const double TICKS_PER_SEC = 10;
+static const double TIME_STEP = 1.0 / TICKS_PER_SEC;
 
 static const double ACCEL_G = 9.80665;
 
@@ -28,6 +29,11 @@ static const double MERLIN_MAX_THRUST = 854000;
 // Merlin 1D I_sp (or as good of a guess as people get), s
 // https://en.wikipedia.org/wiki/Falcon_Heavy#cite_note-5
 static const double MERLIN_ISP = 282;
+// Merlin 1D nozzle exit area,
+// Estimates: https://forum.nasaspaceflight.com/index.php?topic=32983.45
+// Estimates: https://www.reddit.com/r/spacex/comments/4icycu/basic_analysis_of_the_merlin_1d_engine/d2x26pn/
+// 0.95 m seems to be a fair diameter compromise
+static const double MERLIN_A = M_PI * 0.475 * 0.475;
 
 static long double to_ticks(int seconds) {
     return seconds * TICKS_PER_SEC;
@@ -126,7 +132,7 @@ static telemetry_flight_profile setup_flight_profile(telemetry_flight_profile &p
     return profile;
 }
 
-void run_telemetry_profile() {
+void run_telemetry_profile(data_plotter *plotter) {
     // Source: https://www.spaceflightinsider.com/hangar/falcon-9/
     const double stage_1_dry_mass_kg = 25600;
     const double stage_1_fuel_mass_kg = 395700;
@@ -138,9 +144,10 @@ void run_telemetry_profile() {
                         stage_2_dry_mass_kg + stage_2_fuel_mass_kg +
                         payload_mass_kg;
 
-    recording_vdb body{total_mass, 4, static_cast<double>(TIME_STEP)};
+    double time_step = 5;
+    recording_vdb body{total_mass, 4, time_step};
 
-    telemetry_flight_profile profile{static_cast<double>(TIME_STEP)};
+    telemetry_flight_profile profile{time_step};
     setup_flight_profile(profile);
 
     const std::vector<liftoff::vector> &d_mot{body.get_d_mot()};
@@ -151,42 +158,34 @@ void run_telemetry_profile() {
     const liftoff::vector &a{d_mot[2]};
     const liftoff::vector &j{d_mot[3]};
 
-    // Plotting
-    int fake_argc = 0;
-    char *fake_argv[0];
-    const char *app_name = "SpaceX JCSAT-18/KACIFC1 Flight Sim";
-    TApplication app(app_name, &fake_argc, fake_argv);
-    data_plotter plotter(app, app_name, 2, 2);
-
-    TGraph *y_plot = new TGraph();
+    auto *y_plot = new TGraph();
     y_plot->SetTitle("Altitude");
     y_plot->GetYaxis()->SetTitle("Altitude (meters)");
-    TGraph *v_plot = new TGraph();
+    auto *v_plot = new TGraph();
     v_plot->SetTitle("Velocity");
     v_plot->GetYaxis()->SetTitle("Y Velocity (meters/second)");
-    TGraph *a_plot = new TGraph();
+    auto *a_plot = new TGraph();
     a_plot->SetTitle("Acceleration");
     a_plot->GetYaxis()->SetTitle("Y Accleration (meters/second^2)");
-    TGraph *j_plot = new TGraph();
+    auto *j_plot = new TGraph();
     j_plot->SetTitle("Jerk");
     j_plot->GetYaxis()->SetTitle("Y Jerk (meters/second^3)");
 
-    plotter.add_plot(y_plot);
-    plotter.add_plot(v_plot);
-    plotter.add_plot(a_plot);
-    plotter.add_plot(j_plot);
+    plotter->add_plot(y_plot);
+    plotter->add_plot(v_plot);
+    plotter->add_plot(a_plot);
+    plotter->add_plot(j_plot);
 
     for (int i = 1; i <= 4; ++i) {
-        TGraph *plot = plotter.get_plot(i);
+        TGraph *plot = plotter->get_plot(i);
         plot->GetXaxis()->SetTitle("Time (seconds)");
     }
 
     std::vector<double> recorded_drag;
     recorded_drag.push_back(0);
 
-    int complete_ticks = 0;
     int pause_ticks = 0;
-    for (long double i = 1; i < to_ticks(200); ++i) {
+    for (int i = 1; i < 200 / 5; ++i) {
         // Computation
         body.pre_compute();
 
@@ -202,43 +201,35 @@ void run_telemetry_profile() {
         recorded_drag.push_back(cur_drag.get_y());
 
         body.compute_motion();
-
-        // Completion logic
-        if (y.get_y() < 0 && complete_ticks == 0) {
-            body.set_velocity({});
-        }
-
         body.post_compute();
 
-        if (!plotter.is_valid()) {
-            break;
+        if (!plotter->is_valid()) {
+            return;
         }
 
         // Plotting
-        double cur_time_s = i * TIME_STEP;
+        double cur_time_s = i * time_step;
         y_plot->SetPoint(i, cur_time_s, y.get_y());
         v_plot->SetPoint(i, cur_time_s, v.get_y());
         a_plot->SetPoint(i, cur_time_s, a.get_y());
         j_plot->SetPoint(i, cur_time_s, j.get_y());
 
-        plotter.ensure_open_loop(false);
+        plotter_handle_gui(false);
 
         pause_ticks++;
-        if (pause_ticks >= 500) {
-            plotter.update_plots();
-            plotter.await(1000000);
+        if (false /* pause_ticks >= 10 */) {
+            plotter->update_plots();
+            plotter->await(1000000);
 
             pause_ticks = 0;
         }
     }
 
-    plotter.update_plots();
-    while (plotter.is_valid()) {
-        plotter.ensure_open_loop(true);
-    }
+    plotter->update_plots();
 }
 
-void run_test_rocket() {
+void run_test_rocket(data_plotter *plotter) {
+    double merlin_p_e = liftoff::calc_pressure_earth(0) * 1000;
     std::vector<engine> engines;
     for (int i = 0; i < 9; ++i) {
         engine e{MERLIN_MAX_THRUST, MERLIN_ISP};
@@ -266,33 +257,26 @@ void run_test_rocket() {
     const liftoff::vector &a{d_mot[2]};
     const liftoff::vector &j{d_mot[3]};
 
-    // Plotting
-    int fake_argc = 0;
-    char *fake_argv[0];
-    const char *app_name = "SpaceX JCSAT-18/KACIFC1 Flight Sim";
-    TApplication app(app_name, &fake_argc, fake_argv);
-    data_plotter plotter(app, app_name, 2, 2);
-
-    TGraph *y_plot = new TGraph();
+    auto *y_plot = new TGraph();
     y_plot->SetTitle("Altitude");
     y_plot->GetYaxis()->SetTitle("Altitude (meters)");
-    TGraph *v_plot = new TGraph();
+    auto *v_plot = new TGraph();
     v_plot->SetTitle("Velocity");
     v_plot->GetYaxis()->SetTitle("Y Velocity (meters/second)");
-    TGraph *a_plot = new TGraph();
+    auto *a_plot = new TGraph();
     a_plot->SetTitle("Acceleration");
     a_plot->GetYaxis()->SetTitle("Y Accleration (meters/second^2)");
-    TGraph *j_plot = new TGraph();
+    auto *j_plot = new TGraph();
     j_plot->SetTitle("Atmospheric Drag");
     j_plot->GetYaxis()->SetTitle("Drag Force (Newtons)");
 
-    plotter.add_plot(y_plot);
-    plotter.add_plot(v_plot);
-    plotter.add_plot(a_plot);
-    plotter.add_plot(j_plot);
+    plotter->add_plot(y_plot);
+    plotter->add_plot(v_plot);
+    plotter->add_plot(a_plot);
+    plotter->add_plot(j_plot);
 
     for (int i = 1; i <= 4; ++i) {
-        TGraph *plot = plotter.get_plot(i);
+        TGraph *plot = plotter->get_plot(i);
         plot->GetXaxis()->SetTitle("Time (seconds)");
     }
 
@@ -307,7 +291,7 @@ void run_test_rocket() {
 
     int pause_ticks = 0;
     long double sim_duration_ticks = to_ticks(200); // to_ticks(12, 0);
-    for (long double i = 1; i < sim_duration_ticks; ++i) {
+    for (int i = 1; i < sim_duration_ticks; ++i) {
         // Computation
         body.pre_compute();
 
@@ -343,7 +327,6 @@ void run_test_rocket() {
         forces.at(2) = cur_drag;
 
         // Recompute thrust
-        liftoff::vector cur_thrust;
         std::vector<engine> &cur_engines{body.get_engines()};
 
         double prop_rem = body.get_prop_mass();
@@ -353,32 +336,107 @@ void run_test_rocket() {
 
         if (i >= 0) {
             for (auto &e : cur_engines) {
-                e.throttle(.81);
+                e.set_throttle(.9);
             }
         }
 
-        if (i > to_ticks(175)) {
+        if (i >= to_ticks(10)) {
             for (auto &e : cur_engines) {
-                e.throttle(0);
+                e.set_throttle(.73);
             }
         }
 
+        if (i > to_ticks(20)) {
+            for (auto &e : cur_engines) {
+                e.set_throttle(.85);
+            }
+        }
+
+        if (i > to_ticks(40)) {
+            for (auto &e : cur_engines) {
+                e.set_throttle(.85);
+            }
+        }
+
+        if (i > to_ticks(60)) {
+            for (auto &e : cur_engines) {
+                e.set_throttle(.75);
+            }
+        }
+
+        if (i > to_ticks(80)) {
+            for (auto &e : cur_engines) {
+                e.set_throttle(.93);
+            }
+        }
+
+        if (i > to_ticks(90)) {
+            for (auto &e : cur_engines) {
+                e.set_throttle(.95);
+            }
+        }
+
+        if (i > to_ticks(100)) {
+            for (auto &e : cur_engines) {
+                e.set_throttle(.97);
+            }
+        }
+
+        if (i > to_ticks(120)) {
+            for (auto &e : cur_engines) {
+                e.set_throttle(.93);
+            }
+        }
+
+        if (i > to_ticks(130)) {
+            for (auto &e : cur_engines) {
+                e.set_throttle(.89);
+            }
+        }
+
+        if (i > to_ticks(140)) {
+            for (auto &e : cur_engines) {
+                e.set_throttle(.83);
+            }
+        }
+
+        if (i > to_ticks(150)) {
+            for (auto &e : cur_engines) {
+                e.set_throttle(.77);
+            }
+        }
+
+        if (i > to_ticks(160)) {
+            for (auto &e : cur_engines) {
+                e.set_throttle(0);
+            }
+        }
+
+        liftoff::vector cur_thrust;
         for (auto &e : cur_engines) {
-            cur_thrust.add({0, e.get_thrust(), 0});
+            double throttle_pct = e.get_throttle();
+            // Pretty egregious estimate, eek
+            // https://www.grc.nasa.gov/www/k-12/airplane/rockth.html
+            double free_stream_pressure = liftoff::calc_pressure_earth(y.get_y()) * 1000;
+            // cba to figure out how the engine throttle actually affects engine performance here
+            double thrust_adjustment = throttle_pct * (merlin_p_e - free_stream_pressure) * MERLIN_A;
+            double engine_thrust = e.get_thrust() + thrust_adjustment;
+            cur_thrust.add({0, engine_thrust, 0});
 
             double rate = e.get_prop_flow_rate();
             double mass_flow = rate / ACCEL_G;
             double total_prop_mass = mass_flow * TIME_STEP;
             body.drain_propellant(total_prop_mass);
         }
+
         forces.at(3) = cur_thrust;
 
         body.compute_forces();
         body.compute_motion();
         body.post_compute();
 
-        if (!plotter.is_valid()) {
-            break;
+        if (!plotter->is_valid()) {
+            return;
         }
 
         double cur_time_s = i * TIME_STEP;
@@ -387,28 +445,37 @@ void run_test_rocket() {
         a_plot->SetPoint(i, cur_time_s, a.get_y());
         j_plot->SetPoint(i, cur_time_s, drag_y);
 
-        plotter.ensure_open_loop(false);
+        plotter_handle_gui(false);
 
         pause_ticks++;
         if (pause_ticks >= 1000) {
-            plotter.update_plots();
-            plotter.await(1000000);
+            plotter->update_plots();
+            plotter->await(1000000);
 
             pause_ticks = 0;
         }
     }
 
-    plotter.update_plots();
+    plotter->update_plots();
     std::cout << "Remaining propellant: " << body.get_prop_mass() << "kg" << std::endl;
-
-    while (plotter.is_valid()) {
-        plotter.ensure_open_loop(true);
-    }
 }
 
 int main() {
-    // run_telemetry_profile();
-    run_test_rocket();
+    int fake_argc = 0;
+    char *fake_argv[0];
+    TApplication app("SpaceX JCSAT-18/KACIFC1 Flight Sim", &fake_argc, fake_argv);
+
+    auto *telemetry_plotter = new data_plotter(app, "Flight Data Replay", 2, 2);
+    run_telemetry_profile(telemetry_plotter);
+
+    auto *sim_plotter = new data_plotter(app, "Flight Simulation", 2, 2);
+    run_test_rocket(sim_plotter);
+
+    while (telemetry_plotter->is_valid() + sim_plotter->is_valid() > 0) {
+        plotter_handle_gui(true);
+    }
+
+    app.Terminate();
 
     return 0;
 }

@@ -3,16 +3,22 @@
 
 class engine {
 private:
-    double max_thrust;
+    const double max_thrust;
 
     // I_sp = thrust / flow rate
-    double i_sp;
+    const double i_sp;
 
     double throttle_pct;
 public:
     engine(double max_thrust, double i_sp);
 
-    void throttle(double pct);
+    double get_max_thrust() const;
+
+    double get_i_sp() const;
+
+    void set_throttle(double pct);
+
+    double get_throttle() const;
 
     double get_thrust() const;
 

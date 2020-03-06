@@ -14,8 +14,6 @@ private:
     bool valid{true};
 
     TApplication &app;
-
-    // Multiple canvases
     TCanvas *canvas;
 
     int pad_idx_counter{1};
@@ -40,13 +38,11 @@ public:
 
     void update_plot(int gid);
 
-    void ensure_open_loop(bool yield);
-
     void await(long usec);
 
     void signal_close();
 };
 
-data_plotter new_plotter(const std::string &app_name, int nx = 1, int ny = 1);
+void plotter_handle_gui(bool yield);
 
 #endif // LIFTOFF_CLI_DATA_PLOTTER_H

@@ -12,6 +12,21 @@ static double calc_rho_ideal_state(double p, double T) {
 }
 
 // https://www.grc.nasa.gov/WWW/K-12/airplane/atmosmet.html#
+double liftoff::calc_pressure_earth(double alt) {
+    if (alt >= 25000) {
+        double T = -131.21 + .00299 * alt;
+        return 2.488 * pow((T + 273.1) / 216.6, -11.388);
+    } else if (alt >= 11000 && alt < 25000) {
+        return 22.65 * exp(1.73 - .000157 * alt);
+    } else if (alt < 11000) {
+        double T = 15.04 - .00649 * alt;
+        return 101.29 * pow((T + 273.1) / 288.08, 5.256);
+    }
+
+    return -1;
+}
+
+// https://www.grc.nasa.gov/WWW/K-12/airplane/atmosmet.html#
 double liftoff::calc_rho_earth(double alt) {
     if (alt >= 25000) {
         double T = -131.21 + .00299 * alt;

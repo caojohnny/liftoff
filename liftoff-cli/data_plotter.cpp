@@ -7,10 +7,13 @@
 #include <chrono>
 #include <thread>
 
+static const int YIELD_INTERVAL_USEC = 20000;
+
 data_plotter::data_plotter(TApplication &app, const std::string &app_name,
                            int nx, int ny) : app(app) {
-    TCanvas *tc = new TCanvas("tc", app_name.c_str());
-    TRootCanvas *rc = (TRootCanvas *) tc->GetCanvasImp();
+    const char *app_name_carr = app_name.c_str();
+    auto *tc = new TCanvas(app_name_carr, app_name_carr);
+    auto *rc = (TRootCanvas *) tc->GetCanvasImp();
     rc->Connect("CloseWindow()", ROOT_CLS_NAME, this, "signal_close()");
 
     canvas = tc;
@@ -64,16 +67,6 @@ void data_plotter::update_plot(int gid) {
     canvas->Draw();
 }
 
-void data_plotter::ensure_open_loop(bool yield) {
-    app.StartIdleing();
-    gSystem->ProcessEvents();
-    app.StopIdleing();
-
-    if (yield) {
-        std::this_thread::yield();
-    }
-}
-
 void data_plotter::await(long usec) {
     auto begin_time = std::chrono::steady_clock::now();
     while (is_valid()) {
@@ -83,10 +76,18 @@ void data_plotter::await(long usec) {
             break;
         }
 
-        ensure_open_loop(true);
+        plotter_handle_gui(true);
     }
 }
 
 void data_plotter::signal_close() {
     valid = false;
+}
+
+void plotter_handle_gui(bool yield) {
+    gSystem->ProcessEvents();
+
+    if (yield) {
+        usleep(YIELD_INTERVAL_USEC);
+    }
 }
