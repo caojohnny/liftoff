@@ -11,7 +11,7 @@
 #include <TSystem.h>
 #include <TROOT.h>
 
-static const double TICKS_PER_SEC = 10;
+static const double TICKS_PER_SEC = 3;
 static const double TIME_STEP = 1.0 / TICKS_PER_SEC;
 
 static const double ACCEL_G = 9.80665;
@@ -290,7 +290,7 @@ void run_test_rocket(data_plotter *plotter) {
     liftoff::vector cached_n = n;
 
     int pause_ticks = 0;
-    long double sim_duration_ticks = to_ticks(200); // to_ticks(12, 0);
+    long double sim_duration_ticks = to_ticks(12, 0);
     for (int i = 1; i < sim_duration_ticks; ++i) {
         // Computation
         body.pre_compute();
@@ -321,9 +321,9 @@ void run_test_rocket(data_plotter *plotter) {
 
         // Recompute drag for new velocity
         double v_mag = v.magnitude();
+        double drag_sign = -((v.get_y() > 0) - (v.get_y() < 0));
         double drag_y = liftoff::calc_drag_earth(F9_CD, y.get_y(), v_mag, F9_A);
-        int signum = (v_mag > 0) - (v_mag < 0);
-        liftoff::vector cur_drag{0, signum * drag_y, 0};
+        liftoff::vector cur_drag{0, drag_sign * drag_y, 0};
         forces.at(2) = cur_drag;
 
         // Recompute thrust
@@ -443,12 +443,12 @@ void run_test_rocket(data_plotter *plotter) {
         y_plot->SetPoint(i, cur_time_s, y.get_y());
         v_plot->SetPoint(i, cur_time_s, v.get_y());
         a_plot->SetPoint(i, cur_time_s, a.get_y());
-        j_plot->SetPoint(i, cur_time_s, drag_y);
+        j_plot->SetPoint(i, cur_time_s, cur_drag.get_y());
 
         plotter_handle_gui(false);
 
         pause_ticks++;
-        if (pause_ticks >= 1000) {
+        if (pause_ticks >= 30) {
             plotter->update_plots();
             plotter->await(1000000);
 
