@@ -190,7 +190,7 @@ void run_telemetry_profile(data_plotter *plotter) {
         body.pre_compute();
 
         double telem_velocity = profile.get_velocity();
-        if (!isnan(telem_velocity)) {
+        if (!std::isnan(telem_velocity)) {
             body.set_velocity({0, kmh_to_mps(telem_velocity), 0});
         }
 
