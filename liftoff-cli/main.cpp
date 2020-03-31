@@ -1,6 +1,5 @@
 #include <liftoff-physics/body.h>
 #include <iostream>
-#include "recording_fdb.h"
 #include "liftoff-physics/drag.h"
 #include "telemetry_flight_profile.h"
 #include "thrust.h"
@@ -217,12 +216,12 @@ void run_telemetry_profile(data_plotter *plotter) {
         plotter_handle_gui(false);
 
         pause_ticks++;
-        if (false /* pause_ticks >= 10 */) {
+        /* if (pause_ticks >= 10) {
             plotter->update_plots();
             plotter->await(1000000);
 
             pause_ticks = 0;
-        }
+        } */
     }
 
     plotter->update_plots();
@@ -246,7 +245,7 @@ void run_test_rocket(data_plotter *plotter) {
     rocket body{stage_1_dry_mass_kg + stage_2_dry_mass_kg + payload_mass_kg + stage_2_fuel_mass_kg,
                 stage_1_fuel_mass_kg,
                 engines,
-                4, (double) TIME_STEP};
+                4, TIME_STEP};
 
     std::vector<liftoff::vector> &forces = body.get_forces();
     const std::vector<liftoff::vector> &d_mot{body.get_d_mot()};
@@ -255,7 +254,7 @@ void run_test_rocket(data_plotter *plotter) {
     const liftoff::vector &y{d_mot[0]};
     const liftoff::vector &v{d_mot[1]};
     const liftoff::vector &a{d_mot[2]};
-    const liftoff::vector &j{d_mot[3]};
+    // const liftoff::vector &j{d_mot[3]};
 
     auto *y_plot = new TGraph();
     y_plot->SetTitle("Altitude");
@@ -276,6 +275,10 @@ void run_test_rocket(data_plotter *plotter) {
     plotter->add_plot(j_plot);
 
     for (int i = 1; i <= 4; ++i) {
+        TVirtualPad *pad = plotter->get_canvas()->GetPad(i);
+        pad->SetGridx();
+        pad->SetGridy();
+
         TGraph *plot = plotter->get_plot(i);
         plot->GetXaxis()->SetTitle("Time (seconds)");
     }
@@ -290,7 +293,7 @@ void run_test_rocket(data_plotter *plotter) {
     liftoff::vector cached_n = n;
 
     int pause_ticks = 0;
-    long double sim_duration_ticks = to_ticks(12, 0);
+    long double sim_duration_ticks = to_ticks(15, 0);
     for (int i = 1; i < sim_duration_ticks; ++i) {
         // Computation
         body.pre_compute();
@@ -412,6 +415,18 @@ void run_test_rocket(data_plotter *plotter) {
             }
         }
 
+        if (i > to_ticks(450)) {
+            for (auto &e : cur_engines) {
+                e.set_throttle(.6);
+            }
+        }
+
+        if (i > to_ticks(456)) {
+            for (auto &e : cur_engines) {
+                e.set_throttle(0);
+            }
+        }
+
         liftoff::vector cur_thrust;
         for (auto &e : cur_engines) {
             double throttle_pct = e.get_throttle();
@@ -448,7 +463,7 @@ void run_test_rocket(data_plotter *plotter) {
         plotter_handle_gui(false);
 
         pause_ticks++;
-        if (pause_ticks >= 30) {
+        if (pause_ticks >= 3000) {
             plotter->update_plots();
             plotter->await(1000000);
 
@@ -462,16 +477,16 @@ void run_test_rocket(data_plotter *plotter) {
 
 int main() {
     int fake_argc = 0;
-    char *fake_argv[0];
+    char *fake_argv[1];
     TApplication app("SpaceX JCSAT-18/KACIFC1 Flight Sim", &fake_argc, fake_argv);
 
-    auto *telemetry_plotter = new data_plotter(app, "Flight Data Replay", 2, 2);
-    run_telemetry_profile(telemetry_plotter);
+    // auto *telemetry_plotter = new data_plotter(app, "Flight Data Replay", 2, 2);
+    // run_telemetry_profile(telemetry_plotter);
 
     auto *sim_plotter = new data_plotter(app, "Flight Simulation", 2, 2);
     run_test_rocket(sim_plotter);
 
-    while (telemetry_plotter->is_valid() + sim_plotter->is_valid() > 0) {
+    while (0 + sim_plotter->is_valid() > 0) {
         plotter_handle_gui(true);
     }
 

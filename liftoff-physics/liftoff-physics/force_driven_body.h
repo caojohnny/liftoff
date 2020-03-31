@@ -12,7 +12,7 @@ namespace liftoff {
         std::vector<liftoff::vector> forces;
 
     public:
-        explicit force_driven_body(double mass, int derivatives = 4, double time_step = 1);
+        explicit force_driven_body(double db_mass, int db_derivatives = 4, double db_time_step = 1);
 
         void set_position(const liftoff::vector &position);
 
@@ -27,6 +27,5 @@ namespace liftoff {
         virtual void compute_forces();
     };
 }
-
 
 #endif // LIFTOFF_PHYSICS_FORCE_DRIVEN_BODY_H

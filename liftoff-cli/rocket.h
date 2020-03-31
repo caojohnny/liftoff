@@ -12,8 +12,8 @@ private:
     std::vector<engine> engines;
 
 public:
-    rocket(double dry_mass, double prop_mass, std::vector<engine> engines,
-           int derivatives = 4, double time_step = 1);
+    rocket(double rocket_dry_mass, double rocket_prop_mass, std::vector<engine> rocket_engines,
+           int fdb_derivatives = 4, double fdb_time_step = 1);
 
     double get_mass() const override;
 

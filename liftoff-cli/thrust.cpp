@@ -1,6 +1,7 @@
 #include "thrust.h"
 
-engine::engine(double max_thrust, double i_sp) : max_thrust(max_thrust), i_sp(i_sp) {
+engine::engine(double engine_max_thrust, double engine_i_sp) :
+        max_thrust(engine_max_thrust), i_sp(engine_i_sp), throttle_pct(0) {
 }
 
 double engine::get_max_thrust() const {

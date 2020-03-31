@@ -1,7 +1,9 @@
 #include "rocket.h"
 
-rocket::rocket(double dry_mass, double prop_mass, std::vector<engine> engines, int derivatives, double time_step) :
-        recording_fdb(dry_mass, derivatives, time_step), prop_mass(prop_mass), engines(std::move(engines)) {
+rocket::rocket(double rocket_dry_mass, double rocket_prop_mass, std::vector<engine> rocket_engines, int fdb_derivatives,
+               double fdb_time_step) :
+        recording_fdb(rocket_dry_mass, fdb_derivatives, fdb_time_step), prop_mass(rocket_prop_mass),
+        engines(std::move(rocket_engines)) {
 }
 
 double rocket::get_mass() const {

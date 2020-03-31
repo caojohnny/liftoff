@@ -1,8 +1,8 @@
 #include "recording_fdb.h"
 
-recording_fdb::recording_fdb(double mass, int derivatives, double time_step) :
-        liftoff::force_driven_body(mass, derivatives, time_step) {
-    for (int i = 0; i < derivatives; ++i) {
+recording_fdb::recording_fdb(double fdb_mass, int fdb_derivatives, double fdb_time_step) :
+        liftoff::force_driven_body(fdb_mass, fdb_derivatives, fdb_time_step) {
+    for (int i = 0; i < fdb_derivatives; ++i) {
         data.emplace_back();
     }
 }
@@ -11,18 +11,18 @@ const std::vector<double> &recording_fdb::get_elapsed_times() const {
     return elapsed_times;
 }
 
-const vector_record &recording_fdb::get_data(int derivative) const {
+const vector_record &recording_fdb::get_data(liftoff::d_idx_t derivative) const {
     return data[derivative];
 }
 
 void recording_fdb::pre_compute() {
-    bool initial{body::initial};
+    bool is_initial{body::initial};
     force_driven_body::pre_compute();
 
     // Record the initial state vectors
-    if (initial) {
+    if (is_initial) {
         elapsed_times.push_back(cur_time);
-        for (int i = 0; i < d_mot.size(); ++i) {
+        for (liftoff::d_idx_t i = 0; i < d_mot.size(); ++i) {
             data[i].record(d_mot[i]);
         }
 
@@ -34,7 +34,7 @@ void recording_fdb::post_compute() {
     force_driven_body::post_compute();
 
     elapsed_times.push_back(cur_time);
-    for (int i = 0; i < d_mot.size(); ++i) {
+    for (liftoff::d_idx_t i = 0; i < d_mot.size(); ++i) {
         data[i].record(d_mot[i]);
     }
 

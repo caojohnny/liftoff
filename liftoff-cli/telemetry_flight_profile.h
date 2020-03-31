@@ -14,13 +14,13 @@ private:
     double get_telemetry_value(std::map<double, double> map) const;
 
 public:
-    explicit telemetry_flight_profile(double time_step);
+    explicit telemetry_flight_profile(double tfp_time_step);
 
     void set_ballistic_range(double range);
 
-    void put_velocity(double time, double velocity);
+    void put_velocity(double time, double next_velocity);
 
-    void put_altitude(double time, double altitude);
+    void put_altitude(double time, double next_altitude);
 
     void step();
 

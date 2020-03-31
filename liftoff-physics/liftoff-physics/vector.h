@@ -13,21 +13,21 @@ namespace liftoff {
     public:
         vector();
 
-        explicit vector(double c);
+        explicit vector(double k);
 
-        vector(double x, double y, double z);
+        vector(double vec_x, double vec_y, double vec_z);
 
         double get_x() const;
 
-        vector &set_x(double x);
+        vector &set_x(double new_x);
 
         double get_y() const;
 
-        vector &set_y(double y);
+        vector &set_y(double new_y);
 
         double get_z() const;
 
-        vector &set_z(double z);
+        vector &set_z(double new_z);
 
         vector &set(const vector &vec);
 
@@ -41,7 +41,7 @@ namespace liftoff {
 
         double magnitude() const;
 
-        std::string to_string() const;
+        explicit operator std::string() const;
 
         bool operator==(const vector &rhs) const;
     };

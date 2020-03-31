@@ -6,8 +6,6 @@ include(GNUInstallDirs)
 set(MODULE_DIR "${CMAKE_CURRENT_LIST_DIR}")
 get_filename_component(PARENT_DIR "${MODULE_DIR}" DIRECTORY)
 
-set(CMAKE_CXX_STANDARD 11)
-
 add_library(liftoff-physics
         liftoff-physics/body.cpp liftoff-physics/body.h
         liftoff-physics/drag.cpp liftoff-physics/drag.h

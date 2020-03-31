@@ -10,7 +10,7 @@ private:
 
     double throttle_pct;
 public:
-    engine(double max_thrust, double i_sp);
+    engine(double engine_max_thrust, double engine_i_sp);
 
     double get_max_thrust() const;
 

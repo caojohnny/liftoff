@@ -6,16 +6,18 @@
 #include "vector.h"
 
 namespace liftoff {
+    typedef std::vector<int>::size_type d_idx_t;
+
     class body {
     protected:
         bool initial{true};
         double mass;
         std::vector<liftoff::vector> d_mot;
 
-        virtual void set_component(int derivative, const liftoff::vector &component);
+        virtual void set_component(d_idx_t derivative, const liftoff::vector &component);
 
     public:
-        body(double mass, int derivatives);
+        body(double body_mass, int derivatives);
 
         virtual double get_mass() const;
 

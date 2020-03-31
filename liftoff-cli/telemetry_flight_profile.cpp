@@ -1,19 +1,19 @@
 #include <cmath>
 #include "telemetry_flight_profile.h"
 
-telemetry_flight_profile::telemetry_flight_profile(double time_step) : time_step(time_step) {
+telemetry_flight_profile::telemetry_flight_profile(double tfp_time_step) : time_step(tfp_time_step) {
 }
 
 void telemetry_flight_profile::set_ballistic_range(double range) {
-    telemetry_flight_profile::ballistic_range = range;
+    ballistic_range = range;
 }
 
-void telemetry_flight_profile::put_velocity(double time, double velocity) {
-    telemetry_flight_profile::velocity[time] = velocity;
+void telemetry_flight_profile::put_velocity(double time, double next_velocity) {
+    velocity[time] = next_velocity;
 }
 
-void telemetry_flight_profile::put_altitude(double time, double altitude) {
-    telemetry_flight_profile::altitude[time] = altitude;
+void telemetry_flight_profile::put_altitude(double time, double next_altitude) {
+    altitude[time] = next_altitude;
 }
 
 void telemetry_flight_profile::step() {

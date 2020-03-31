@@ -42,7 +42,6 @@ int data_plotter::add_plot(TGraph *g) {
     graphs.push_back(g);
 
     int gid = pad_idx_counter;
-
     pad_idx_counter++;
 
     canvas->cd(gid);

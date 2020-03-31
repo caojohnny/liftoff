@@ -29,11 +29,11 @@ private:
     std::vector<double> elapsed_times;
     std::vector<vector_record> data;
 public:
-    explicit recording_fdb(double mass, int derivatives = 4, double time_step = 1);
+    explicit recording_fdb(double fdb_mass, int fdb_derivatives = 4, double fdb_time_step = 1);
 
     const std::vector<double> &get_elapsed_times() const;
 
-    const vector_record &get_data(int derivative) const;
+    const vector_record &get_data(liftoff::d_idx_t derivative) const;
 
     void pre_compute() override;
 

@@ -1,15 +1,17 @@
 #include "velocity_driven_body.h"
 
-static const int VELOCITY_DRIVER_IDX = 1;
+namespace liftoff {
+    static const d_idx_t VELOCITY_DRIVER_IDX = 1;
 
-liftoff::velocity_driven_body::velocity_driven_body(double mass, int derivatives, double time_step) :
-        liftoff::driven_body(mass, VELOCITY_DRIVER_IDX, derivatives, time_step) {
-}
+    velocity_driven_body::velocity_driven_body(double body_mass, int body_derivatives, double body_time_step) :
+            driven_body(body_mass, VELOCITY_DRIVER_IDX, body_derivatives, body_time_step) {
+    }
 
-void liftoff::velocity_driven_body::set_position(const liftoff::vector &position) {
-    set_component(0, position);
-}
+    void velocity_driven_body::set_position(const vector &position) {
+        set_component(0, position);
+    }
 
-void liftoff::velocity_driven_body::set_velocity(const liftoff::vector &velocity) {
-    set_component(1, velocity);
+    void velocity_driven_body::set_velocity(const vector &velocity) {
+        set_component(1, velocity);
+    }
 }
