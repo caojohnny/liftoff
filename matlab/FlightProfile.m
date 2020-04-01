@@ -15,7 +15,9 @@ a = rocket_accel * ones(1, steps); % constant acceleration profile
 a_verification = zeros(1, steps);
 
 p = zeros(2, steps); % position
+p_no_fit = zeros(1, steps); % position, no fit towards profile
 v = zeros(2, steps); % velocity
+v_no_fit = zeros(1, steps); % velocity, no fit (helper for p_no_fit)
 
 p_error = zeros(1, steps); % y axis - (profile - p) error from flight profile
 
@@ -41,6 +43,10 @@ for i = 1:steps - 1
     p(2, i + 1) = p(2, i) + vy * time_step;
     v(2, i + 1) = vy + day * time_step;
 
+    % no fitting
+    p_no_fit(i + 1) = p_no_fit(i) + v_no_fit(i) * time_step;
+    v_no_fit(i + 1) = v_no_fit(i) + a(i) * time_step;
+
     p_error(i + 1) = y_profile(i) - p(2, i);
 end
 
@@ -48,6 +54,7 @@ end
 hold on
 plot(x_time, p(1, 1:end), "b:");
 plot(x_time, p(2, 1:end), "b--");
+plot(x_time, p_no_fit, "r:");
 plot(x_time, y_profile, "k-");
 plot(x_time, p_error, "r-");
 hold off

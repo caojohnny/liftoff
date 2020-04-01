@@ -11,7 +11,7 @@ private:
     std::map<double, double> velocity;
     std::map<double, double> altitude;
 
-    double get_telemetry_value(std::map<double, double> map, bool prev) const;
+    double get_telemetry_value(std::map<double, double> map) const;
 
 public:
     explicit telemetry_flight_profile(double tfp_time_step);

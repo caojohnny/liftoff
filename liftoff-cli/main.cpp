@@ -48,7 +48,7 @@ static double kmh_to_mps(double kmh) {
 }
 
 static int signum(double x) {
-    return ((x > 0) - (x < 0));
+    return (x > 0) - (x < 0);
 }
 
 static telemetry_flight_profile setup_flight_profile(telemetry_flight_profile &profile) {
@@ -137,7 +137,7 @@ static telemetry_flight_profile setup_flight_profile(telemetry_flight_profile &p
 }
 
 static liftoff::vector adjust_velocity(pidf_controller &pidf, double mag) {
-    double target_y_velocity = pidf.compute_pidf();
+    double target_y_velocity = pidf.compute_error() / pidf.get_time_step();
 
     liftoff::vector result;
     if (std::abs(target_y_velocity) >= mag) {
@@ -171,14 +171,15 @@ void run_telemetry_profile(data_plotter *plotter) {
     const std::vector<liftoff::vector> &d_mot{body.get_d_mot()};
 
     // Telemetry
-    const liftoff::vector &y{d_mot[0]};
+    const liftoff::vector &p{d_mot[0]};
     const liftoff::vector &v{d_mot[1]};
     const liftoff::vector &a{d_mot[2]};
     const liftoff::vector &j{d_mot[3]};
 
-    auto *y_plot = new TGraph();
-    y_plot->SetTitle("Altitude");
-    y_plot->GetYaxis()->SetTitle("Altitude (meters)");
+    auto *p_plot = new TGraph();
+    p_plot->SetTitle("Position");
+    p_plot->GetYaxis()->SetTitle("Altitude (m)");
+    p_plot->GetXaxis()->SetTitle("Downrange Distance (m)");
     auto *v_plot = new TGraph();
     v_plot->SetTitle("Velocity");
     v_plot->GetYaxis()->SetTitle("Y Velocity (meters/second)");
@@ -189,7 +190,7 @@ void run_telemetry_profile(data_plotter *plotter) {
     j_plot->SetTitle("Jerk");
     j_plot->GetYaxis()->SetTitle("Y Jerk (meters/second^3)");
 
-    plotter->add_plot(y_plot);
+    plotter->add_plot(p_plot);
     plotter->add_plot(v_plot);
     plotter->add_plot(a_plot);
     plotter->add_plot(j_plot);
@@ -199,22 +200,24 @@ void run_telemetry_profile(data_plotter *plotter) {
         pad->SetGridx();
         pad->SetGridy();
 
-        TGraph *plot = plotter->get_plot(i);
-        plot->GetXaxis()->SetTitle("Time (seconds)");
+        if (i != 1) {
+            TGraph *plot = plotter->get_plot(i);
+            plot->GetXaxis()->SetTitle("Time (seconds)");
+        }
     }
 
     std::vector<double> recorded_drag;
     recorded_drag.push_back(0);
 
-    pidf_controller pidf{time_step, 0.2, 0, 0, 0};
+    pidf_controller pidf{time_step, 0, 0, 0, 0};
 
     int pause_ticks = 0;
     for (int i = 1; i < 200 / time_step; ++i) {
         // Computation
         body.pre_compute();
 
-        pidf.set_last_state(y.get_y());
-        /* if (i <= 175 / time_step) {
+        pidf.set_last_state(p.get_y());
+        /* if (i <= 175 / 5) {
             j_plot->SetPoint(i, i * time_step, pidf.compute_error());
         } */
 
@@ -230,8 +233,8 @@ void run_telemetry_profile(data_plotter *plotter) {
 
         profile.step();
 
-        double drag_x = liftoff::calc_drag_earth(F9_CD, y.get_y(), v.get_x(), F9_A);
-        double drag_y = liftoff::calc_drag_earth(F9_CD, y.get_y(), v.get_y(), F9_A);
+        double drag_x = liftoff::calc_drag_earth(F9_CD, p.get_y(), v.get_x(), F9_A);
+        double drag_y = liftoff::calc_drag_earth(F9_CD, p.get_y(), v.get_y(), F9_A);
         liftoff::vector cur_drag{drag_x, drag_y, 0};
         recorded_drag.push_back(cur_drag.get_y());
 
@@ -244,7 +247,7 @@ void run_telemetry_profile(data_plotter *plotter) {
 
         // Plotting
         double cur_time_s = i * time_step;
-        y_plot->SetPoint(i, cur_time_s, y.get_y());
+        p_plot->SetPoint(i, p.get_x(), p.get_y());
         v_plot->SetPoint(i, cur_time_s, v.magnitude());
         a_plot->SetPoint(i, cur_time_s, a.magnitude());
         j_plot->SetPoint(i, cur_time_s, j.magnitude());
