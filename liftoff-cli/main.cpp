@@ -51,7 +51,7 @@ static int signum(double x) {
     return (x > 0) - (x < 0);
 }
 
-static telemetry_flight_profile setup_flight_profile(telemetry_flight_profile &profile) {
+static void setup_flight_profile(telemetry_flight_profile &profile) {
     // JCSAT-18/KACIFIC1
 
     // This actually isn't a ballistic trajectory (I don't think,
@@ -132,8 +132,6 @@ static telemetry_flight_profile setup_flight_profile(telemetry_flight_profile &p
     profile.put_altitude(170, 76.2);
     profile.put_altitude(175, 80.2);
     // profile.put_altitude(507, 0);
-
-    return profile;
 }
 
 static liftoff::vector adjust_velocity(pidf_controller &pidf, double mag) {
@@ -178,8 +176,8 @@ void run_telemetry_profile(data_plotter *plotter) {
 
     auto *p_plot = new TGraph();
     p_plot->SetTitle("Position");
-    p_plot->GetYaxis()->SetTitle("Altitude (m)");
-    p_plot->GetXaxis()->SetTitle("Downrange Distance (m)");
+    p_plot->GetYaxis()->SetTitle("Altitude (meters)");
+    p_plot->GetXaxis()->SetTitle("Downrange Distance (meters)");
     auto *v_plot = new TGraph();
     v_plot->SetTitle("Velocity");
     v_plot->GetYaxis()->SetTitle("Y Velocity (meters/second)");
@@ -267,6 +265,11 @@ void run_telemetry_profile(data_plotter *plotter) {
 }
 
 void run_test_rocket(data_plotter *plotter) {
+    telemetry_flight_profile profile{TIME_STEP};
+    setup_flight_profile(profile);
+    
+    pidf_controller pidf{TIME_STEP, 0, 0, 0, 0};
+    
     double merlin_p_e = liftoff::calc_pressure_earth(0) * 1000;
     std::vector<engine> engines;
     for (int i = 0; i < 9; ++i) {
@@ -290,14 +293,15 @@ void run_test_rocket(data_plotter *plotter) {
     const std::vector<liftoff::vector> &d_mot{body.get_d_mot()};
 
     // Telemetry
-    const liftoff::vector &y{d_mot[0]};
+    const liftoff::vector &p{d_mot[0]};
     const liftoff::vector &v{d_mot[1]};
     const liftoff::vector &a{d_mot[2]};
     // const liftoff::vector &j{d_mot[3]};
 
-    auto *y_plot = new TGraph();
-    y_plot->SetTitle("Altitude");
-    y_plot->GetYaxis()->SetTitle("Altitude (meters)");
+    auto *p_plot = new TGraph();
+    p_plot->SetTitle("Altitude");
+    p_plot->GetYaxis()->SetTitle("Altitude (meters)");
+    p_plot->GetXaxis()->SetTitle("Downrange Distance (meters)");
     auto *v_plot = new TGraph();
     v_plot->SetTitle("Velocity");
     v_plot->GetYaxis()->SetTitle("Y Velocity (meters/second)");
@@ -308,7 +312,7 @@ void run_test_rocket(data_plotter *plotter) {
     j_plot->SetTitle("Atmospheric Drag");
     j_plot->GetYaxis()->SetTitle("Drag Force (Newtons)");
 
-    plotter->add_plot(y_plot);
+    plotter->add_plot(p_plot);
     plotter->add_plot(v_plot);
     plotter->add_plot(a_plot);
     plotter->add_plot(j_plot);
@@ -318,8 +322,10 @@ void run_test_rocket(data_plotter *plotter) {
         pad->SetGridx();
         pad->SetGridy();
 
-        TGraph *plot = plotter->get_plot(i);
-        plot->GetXaxis()->SetTitle("Time (seconds)");
+        if (i != 1) {
+            TGraph *plot = plotter->get_plot(i);
+            plot->GetXaxis()->SetTitle("Time (seconds)");
+        }
     }
 
     // Initial state
@@ -341,7 +347,7 @@ void run_test_rocket(data_plotter *plotter) {
         auto find_n = std::find(forces.begin(), forces.end(), cached_n);
 
         liftoff::vector new_n;
-        if (y.get_y() < 0) {
+        if (p.get_y() < 0) {
             for (const auto &force : forces) {
                 if (force.get_y() < 0) {
                     new_n.add({0, -force.get_y(), 0});
@@ -364,7 +370,7 @@ void run_test_rocket(data_plotter *plotter) {
         // Recompute drag for new velocity
         double v_mag = v.magnitude();
         double drag_sign = -((v.get_y() > 0) - (v.get_y() < 0));
-        double drag_y = liftoff::calc_drag_earth(F9_CD, y.get_y(), v_mag, F9_A);
+        double drag_y = liftoff::calc_drag_earth(F9_CD, p.get_y(), v_mag, F9_A);
         liftoff::vector cur_drag{0, drag_sign * drag_y, 0};
         forces.at(2) = cur_drag;
 
@@ -495,7 +501,7 @@ void run_test_rocket(data_plotter *plotter) {
             double throttle_pct = e.get_throttle();
             // Pretty egregious estimate, eek
             // https://www.grc.nasa.gov/www/k-12/airplane/rockth.html
-            double free_stream_pressure = liftoff::calc_pressure_earth(y.get_y()) * 1000;
+            double free_stream_pressure = liftoff::calc_pressure_earth(p.get_y()) * 1000;
             // cba to figure out how the engine throttle actually affects engine performance here
             double thrust_adjustment = throttle_pct * (merlin_p_e - free_stream_pressure) * MERLIN_A;
             double engine_thrust = e.get_thrust() + thrust_adjustment;
@@ -507,7 +513,24 @@ void run_test_rocket(data_plotter *plotter) {
             body.drain_propellant(total_prop_mass);
         }
 
+        double telem_alt = profile.get_altitude();
+        double cur_velocity = v.magnitude();
+        pidf.set_last_state(p.get_y());
+        if (cur_velocity != 0 && !std::isnan(telem_alt)) {
+            pidf.set_setpoint(telem_alt * 1000);
+            if (pidf.compute_error() > 0) {
+                const liftoff::vector &adjusted = adjust_velocity(pidf, cur_velocity);
+
+                double thrust_magnitude = cur_thrust.magnitude();
+                double tx = adjusted.get_x() * thrust_magnitude / cur_velocity;
+                double ty = adjusted.get_y() * thrust_magnitude / cur_velocity;
+                cur_thrust.set({tx, ty, 0});
+            }
+        }
+
         forces.at(3) = cur_thrust;
+
+        profile.step();
 
         body.compute_forces();
         body.compute_motion();
@@ -518,10 +541,10 @@ void run_test_rocket(data_plotter *plotter) {
         }
 
         double cur_time_s = i * TIME_STEP;
-        y_plot->SetPoint(i, cur_time_s, y.get_y());
-        v_plot->SetPoint(i, cur_time_s, v.get_y());
-        a_plot->SetPoint(i, cur_time_s, a.get_y());
-        j_plot->SetPoint(i, cur_time_s, cur_drag.get_y());
+        p_plot->SetPoint(i, p.get_x(), p.get_y());
+        v_plot->SetPoint(i, cur_time_s, v.magnitude());
+        a_plot->SetPoint(i, cur_time_s, a.magnitude());
+        j_plot->SetPoint(i, cur_time_s, cur_drag.magnitude());
 
         plotter_handle_gui(false);
 
@@ -546,10 +569,10 @@ int main() {
     auto *telemetry_plotter = new data_plotter(app, "Flight Data Replay", 2, 2);
     run_telemetry_profile(telemetry_plotter);
 
-    // auto *sim_plotter = new data_plotter(app, "Flight Simulation", 2, 2);
-    // run_test_rocket(sim_plotter);
+    auto *sim_plotter = new data_plotter(app, "Flight Simulation", 2, 2);
+    run_test_rocket(sim_plotter);
 
-    while (telemetry_plotter->is_valid() /* + sim_plotter->is_valid() */ > 0) {
+    while (telemetry_plotter->is_valid() + sim_plotter->is_valid() > 0) {
         plotter_handle_gui(true);
     }
 
