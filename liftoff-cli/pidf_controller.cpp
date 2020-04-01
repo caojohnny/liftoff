@@ -1,5 +1,8 @@
 #include "pidf_controller.h"
 
+// Implementation based on:
+// https://agenttroll.github.io/blog/2019/01/16/intro-to-control-theory.html
+
 pidf_controller::pidf_controller(double pc_time_step, double pc_p_gain, double pc_i_gain, double pc_d_gain,
                                  double pc_f_gain) {
     time_step = pc_time_step;
