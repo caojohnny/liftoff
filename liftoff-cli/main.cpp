@@ -6,6 +6,7 @@
 #include "rocket.h"
 #include "recording_vdb.h"
 #include "data_plotter.h"
+#include "pidf_controller.h"
 #include <TAxis.h>
 #include <TSystem.h>
 #include <TROOT.h>
@@ -46,6 +47,10 @@ static double kmh_to_mps(double kmh) {
     return kmh * 1000 / 3600;
 }
 
+static int signum(double x) {
+    return ((x > 0) - (x < 0));
+}
+
 static telemetry_flight_profile setup_flight_profile(telemetry_flight_profile &profile) {
     // JCSAT-18/KACIFIC1
 
@@ -53,7 +58,7 @@ static telemetry_flight_profile setup_flight_profile(telemetry_flight_profile &p
     // I didn't look that closely at the animation) but it should
     // be close enough in theory :)
     // https://everydayastronaut.com/prelaunch-preview-falcon-9-block-5-jcsat-18-kacific-1/
-    profile.set_ballistic_range(651);
+    profile.set_ballistic_range(651000);
 
     profile.put_velocity(5, 28);
     profile.put_velocity(10, 98);
@@ -126,9 +131,23 @@ static telemetry_flight_profile setup_flight_profile(telemetry_flight_profile &p
     profile.put_altitude(165, 72.0);
     profile.put_altitude(170, 76.2);
     profile.put_altitude(175, 80.2);
-    profile.put_altitude(507, 0);
+    // profile.put_altitude(507, 0);
 
     return profile;
+}
+
+static liftoff::vector adjust_velocity(pidf_controller &pidf, double mag) {
+    double target_y_velocity = pidf.compute_pidf();
+
+    liftoff::vector result;
+    if (std::abs(target_y_velocity) >= mag) {
+        result.set_y(signum(target_y_velocity) * mag);
+    } else {
+        result.set_x(sqrt(mag * mag - target_y_velocity * target_y_velocity));
+        result.set_y(target_y_velocity);
+    }
+
+    return result;
 }
 
 void run_telemetry_profile(data_plotter *plotter) {
@@ -176,6 +195,10 @@ void run_telemetry_profile(data_plotter *plotter) {
     plotter->add_plot(j_plot);
 
     for (int i = 1; i <= 4; ++i) {
+        TVirtualPad *pad = plotter->get_canvas()->GetPad(i);
+        pad->SetGridx();
+        pad->SetGridy();
+
         TGraph *plot = plotter->get_plot(i);
         plot->GetXaxis()->SetTitle("Time (seconds)");
     }
@@ -183,20 +206,33 @@ void run_telemetry_profile(data_plotter *plotter) {
     std::vector<double> recorded_drag;
     recorded_drag.push_back(0);
 
+    pidf_controller pidf{time_step, 0.2, 0, 0, 0};
+
     int pause_ticks = 0;
-    for (int i = 1; i < 200 / 5; ++i) {
+    for (int i = 1; i < 200 / time_step; ++i) {
         // Computation
         body.pre_compute();
 
+        pidf.set_last_state(y.get_y());
+        /* if (i <= 175 / time_step) {
+            j_plot->SetPoint(i, i * time_step, pidf.compute_error());
+        } */
+
         double telem_velocity = profile.get_velocity();
-        if (!std::isnan(telem_velocity)) {
-            body.set_velocity({0, kmh_to_mps(telem_velocity), 0});
+        double telem_alt = profile.get_altitude();
+        if (!std::isnan(telem_velocity) && !std::isnan(telem_alt)) {
+            pidf.set_setpoint(telem_alt * 1000);
+
+            double mag = kmh_to_mps(telem_velocity);
+            const liftoff::vector &new_velocity = adjust_velocity(pidf, mag);
+            body.set_velocity(new_velocity);
         }
 
         profile.step();
 
-        double drag_y = liftoff::calc_drag_earth(F9_CD, y.get_y(), v.magnitude(), F9_A);
-        liftoff::vector cur_drag{0, drag_y, 0};
+        double drag_x = liftoff::calc_drag_earth(F9_CD, y.get_y(), v.get_x(), F9_A);
+        double drag_y = liftoff::calc_drag_earth(F9_CD, y.get_y(), v.get_y(), F9_A);
+        liftoff::vector cur_drag{drag_x, drag_y, 0};
         recorded_drag.push_back(cur_drag.get_y());
 
         body.compute_motion();
@@ -209,9 +245,9 @@ void run_telemetry_profile(data_plotter *plotter) {
         // Plotting
         double cur_time_s = i * time_step;
         y_plot->SetPoint(i, cur_time_s, y.get_y());
-        v_plot->SetPoint(i, cur_time_s, v.get_y());
-        a_plot->SetPoint(i, cur_time_s, a.get_y());
-        j_plot->SetPoint(i, cur_time_s, j.get_y());
+        v_plot->SetPoint(i, cur_time_s, v.magnitude());
+        a_plot->SetPoint(i, cur_time_s, a.magnitude());
+        j_plot->SetPoint(i, cur_time_s, j.magnitude());
 
         plotter_handle_gui(false);
 
@@ -415,13 +451,37 @@ void run_test_rocket(data_plotter *plotter) {
             }
         }
 
-        if (i > to_ticks(450)) {
+        if (i > to_ticks(630)) {
             for (auto &e : cur_engines) {
                 e.set_throttle(.6);
             }
         }
 
-        if (i > to_ticks(456)) {
+        if (i > to_ticks(632)) {
+            for (auto &e : cur_engines) {
+                e.set_throttle(0);
+            }
+        }
+
+        if (i > to_ticks(640)) {
+            for (auto &e : cur_engines) {
+                e.set_throttle(.2);
+            }
+        }
+
+        if (i > to_ticks(648)) {
+            for (auto &e : cur_engines) {
+                e.set_throttle(0);
+            }
+        }
+
+        if (i > to_ticks(650)) {
+            for (auto &e : cur_engines) {
+                e.set_throttle(.2);
+            }
+        }
+
+        if (i > to_ticks(658)) {
             for (auto &e : cur_engines) {
                 e.set_throttle(0);
             }
@@ -480,13 +540,13 @@ int main() {
     char *fake_argv[1];
     TApplication app("SpaceX JCSAT-18/KACIFC1 Flight Sim", &fake_argc, fake_argv);
 
-    // auto *telemetry_plotter = new data_plotter(app, "Flight Data Replay", 2, 2);
-    // run_telemetry_profile(telemetry_plotter);
+    auto *telemetry_plotter = new data_plotter(app, "Flight Data Replay", 2, 2);
+    run_telemetry_profile(telemetry_plotter);
 
-    auto *sim_plotter = new data_plotter(app, "Flight Simulation", 2, 2);
-    run_test_rocket(sim_plotter);
+    // auto *sim_plotter = new data_plotter(app, "Flight Simulation", 2, 2);
+    // run_test_rocket(sim_plotter);
 
-    while (0 + sim_plotter->is_valid() > 0) {
+    while (telemetry_plotter->is_valid() /* + sim_plotter->is_valid() */ > 0) {
         plotter_handle_gui(true);
     }
 

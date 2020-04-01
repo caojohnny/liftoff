@@ -20,26 +20,30 @@ void telemetry_flight_profile::step() {
     current_time += time_step;
 }
 
-double telemetry_flight_profile::get_telemetry_value(std::map<double, double> map) const {
-    auto it = map.lower_bound(current_time - time_step);
-    if (it == map.end()) {
-        return NAN;
-    }
+double telemetry_flight_profile::get_telemetry_value(std::map<double, double> map, bool prev) const {
+    if (prev) {
+        auto it = map.lower_bound(current_time - time_step);
+        if (it == map.end()) {
+            return NAN;
+        }
 
-    auto entry = *it;
-    if (entry.first <= current_time) {
-        return entry.second;
-    }
+        return (*it).second;
+    } else {
+        auto it = map.upper_bound(current_time);
+        if (it == map.end()) {
+            return NAN;
+        }
 
-    return NAN;
+        return (*it).second;
+    }
 }
 
 double telemetry_flight_profile::get_velocity() const {
-    return get_telemetry_value(velocity);
+    return get_telemetry_value(velocity, true);
 }
 
 double telemetry_flight_profile::get_altitude() const {
-    return get_telemetry_value(altitude);
+    return get_telemetry_value(altitude, false);
 }
 
 void telemetry_flight_profile::reset() {

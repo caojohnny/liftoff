@@ -28,7 +28,7 @@ add_executable(liftoff-cli
         thrust.cpp thrust.h
         telemetry_flight_profile.cpp telemetry_flight_profile.h
         rocket.cpp rocket.h
-        recording_vdb.cpp recording_vdb.h)
+        recording_vdb.cpp recording_vdb.h pidf_controller.cpp pidf_controller.h)
 target_link_libraries(liftoff-cli
         PRIVATE liftoff-physics
         PRIVATE data_plotter)

@@ -28,7 +28,6 @@ namespace liftoff {
         // initial conditions
         if (initial) {
             compute_forces();
-            updated_derivatives.clear();
         }
 
         driven_body::pre_compute();

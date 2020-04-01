@@ -13,12 +13,6 @@ namespace liftoff {
             return;
         }
 
-        vector &prev{prev_state[derivative]};
-        vector &cur{d_mot[derivative]};
-
-        if (updated_derivatives.insert(derivative).second) {
-            prev.set(cur);
-        }
         body::set_component(derivative, component);
 
         if (!initial) {
@@ -26,22 +20,18 @@ namespace liftoff {
         }
     }
 
-    bool driven_body::has_derivative_updated(d_idx_t derivative) {
-        return updated_derivatives.find(derivative) != updated_derivatives.end();
-    }
-
-    void driven_body::drive_derivatives(d_idx_t cur_driver_idx) {
+    void driven_body::drive_derivatives(d_idx_t root_driver) {
         vector time_v{time_step};
 
-        for (d_idx_t i = cur_driver_idx + 1; i < d_mot.size(); ++i) {
+        for (d_idx_t i = root_driver + 1; i < d_mot.size(); ++i) {
             const vector &prev_driving_vec{prev_state[i - 1]};
             const vector &cur_driving_vec{d_mot[i - 1]};
             d_mot[i].set(cur_driving_vec).sub(prev_driving_vec).div(time_v);
         }
     }
 
-    void driven_body::drive_integrals(d_idx_t cur_driver_idx) {
-        if (cur_driver_idx == 0) {
+    void driven_body::drive_integrals(d_idx_t root_driver) {
+        if (root_driver == 0) {
             return;
         }
 
@@ -52,7 +42,7 @@ namespace liftoff {
             adjusted_mot.push_back(vector{vec}.mul(time_v));
         }
 
-        d_idx_t i = cur_driver_idx;
+        d_idx_t i = root_driver;
         do {
             i--;
 
@@ -61,21 +51,13 @@ namespace liftoff {
         } while (i != 0);
     }
 
-    void driven_body::pre_compute() {
-        body::pre_compute();
-
-        for (d_idx_t i = 0; i < d_mot.size(); ++i) {
-            if (!has_derivative_updated(i)) {
-                prev_state[i].set(d_mot[i]);
-            }
-        }
-    }
-
     void driven_body::compute_motion() {
         drive_integrals(driver_idx);
     }
 
     void driven_body::post_compute() {
-        updated_derivatives.clear();
+        for (d_idx_t i = 0; i < d_mot.size(); ++i) {
+            prev_state[i].set(d_mot[i]);
+        }
     }
 }
