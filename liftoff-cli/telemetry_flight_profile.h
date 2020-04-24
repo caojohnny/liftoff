@@ -7,11 +7,11 @@ class telemetry_flight_profile {
 private:
     const double time_step;
     double current_time{0};
-    double ballistic_range;
+    double ballistic_range{0};
     std::map<double, double> velocity;
     std::map<double, double> altitude;
 
-    double get_telemetry_value(std::map<double, double> map) const;
+    double get_telemetry_value(const std::map<double, double> &map) const;
 
 public:
     explicit telemetry_flight_profile(double tfp_time_step);

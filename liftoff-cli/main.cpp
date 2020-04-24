@@ -10,8 +10,10 @@
 #include <TAxis.h>
 #include <TSystem.h>
 #include <TROOT.h>
+#include <nlohmann/json.hpp>
+#include <fstream>
 
-static const double TICKS_PER_SEC = 3;
+static const double TICKS_PER_SEC = 1;
 static const double TIME_STEP = 1.0 / TICKS_PER_SEC;
 
 static const double ACCEL_G = 9.80665;
@@ -47,11 +49,15 @@ static double kmh_to_mps(double kmh) {
     return kmh * 1000 / 3600;
 }
 
+static double km_to_m(double km) {
+    return km * 1000;
+}
+
 static int signum(double x) {
     return (x > 0) - (x < 0);
 }
 
-static void setup_flight_profile(telemetry_flight_profile &profile) {
+static void setup_flight_profile(telemetry_flight_profile &profile, const std::string path) {
     // JCSAT-18/KACIFIC1
 
     // This actually isn't a ballistic trajectory (I don't think,
@@ -60,92 +66,46 @@ static void setup_flight_profile(telemetry_flight_profile &profile) {
     // https://everydayastronaut.com/prelaunch-preview-falcon-9-block-5-jcsat-18-kacific-1/
     profile.set_ballistic_range(651000);
 
-    profile.put_velocity(5, 28);
-    profile.put_velocity(10, 98);
-    profile.put_velocity(15, 178);
-    profile.put_velocity(20, 264);
-    profile.put_velocity(25, 355);
-    profile.put_velocity(30, 458);
-    profile.put_velocity(35, 567);
-    profile.put_velocity(40, 684);
-    profile.put_velocity(45, 816);
-    profile.put_velocity(50, 931);
-    profile.put_velocity(55, 1013);
-    profile.put_velocity(60, 1109);
-    profile.put_velocity(65, 1275);
-    profile.put_velocity(70, 1454);
-    profile.put_velocity(75, 1658);
-    profile.put_velocity(80, 1868);
-    profile.put_velocity(85, 2106);
-    profile.put_velocity(90, 2359);
-    profile.put_velocity(95, 2644);
-    profile.put_velocity(100, 2951);
-    profile.put_velocity(105, 3290);
-    profile.put_velocity(110, 3649);
-    profile.put_velocity(115, 4040);
-    profile.put_velocity(120, 4458);
-    profile.put_velocity(125, 4896);
-    profile.put_velocity(130, 5367);
-    profile.put_velocity(135, 5874);
-    profile.put_velocity(140, 6428);
-    profile.put_velocity(145, 7012);
-    profile.put_velocity(150, 7559);
-    profile.put_velocity(155, 8139);
-    profile.put_velocity(160, 8180);
-    profile.put_velocity(165, 8114);
-    profile.put_velocity(170, 8148);
-    profile.put_velocity(175, 8232);
-
-    profile.put_altitude(5, 0);
-    profile.put_altitude(10, 0.1);
-    profile.put_altitude(15, 0.3);
-    profile.put_altitude(20, 0.6);
-    profile.put_altitude(25, 1.0);
-    profile.put_altitude(30, 1.6);
-    profile.put_altitude(35, 2.3);
-    profile.put_altitude(40, 3.2);
-    profile.put_altitude(45, 4.2);
-    profile.put_altitude(50, 5.3);
-    profile.put_altitude(55, 6.6);
-    profile.put_altitude(60, 7.9);
-    profile.put_altitude(65, 9.4);
-    profile.put_altitude(70, 10.9);
-    profile.put_altitude(75, 12.7);
-    profile.put_altitude(80, 14.6);
-    profile.put_altitude(85, 16.7);
-    profile.put_altitude(90, 18.8);
-    profile.put_altitude(95, 21.2);
-    profile.put_altitude(100, 23.6);
-    profile.put_altitude(105, 26.2);
-    profile.put_altitude(110, 29.1);
-    profile.put_altitude(115, 32.0);
-    profile.put_altitude(120, 35.2);
-    profile.put_altitude(125, 38.5);
-    profile.put_altitude(130, 42.1);
-    profile.put_altitude(135, 45.9);
-    profile.put_altitude(140, 49.9);
-    profile.put_altitude(145, 54.1);
-    profile.put_altitude(150, 58.5);
-    profile.put_altitude(155, 63.1);
-    profile.put_altitude(160, 67.7);
-    profile.put_altitude(165, 72.0);
-    profile.put_altitude(170, 76.2);
-    profile.put_altitude(175, 80.2);
-    // profile.put_altitude(507, 0);
-}
-
-static liftoff::vector adjust_velocity(pidf_controller &pidf, double mag) {
-    double target_y_velocity = pidf.compute_error() / pidf.get_time_step();
-
-    liftoff::vector result;
-    if (std::abs(target_y_velocity) >= mag) {
-        result.set_y(signum(target_y_velocity) * mag);
-    } else {
-        result.set_x(sqrt(mag * mag - target_y_velocity * target_y_velocity));
-        result.set_y(target_y_velocity);
+    std::ifstream data_file(path);
+    if (!data_file.good()) {
+        std::cout << "Cannot find file '" << path << "'" << std::endl;
+        data_file.close();
+        return;
     }
 
-    return result;
+    std::string line;
+    while (std::getline(data_file, line)) {
+        const auto &json = nlohmann::json::parse(line);
+        double time = json["time"];
+        double velocity = json["velocity"];
+        double altitude = json["altitude"];
+
+        profile.put_velocity(time, velocity);
+        profile.put_altitude(time, km_to_m(altitude));
+    }
+    data_file.close();
+}
+
+static liftoff::vector adjust_velocity(pidf_controller &pidf, double mag_v) {
+    double target_x_velocity;
+    double target_y_velocity;
+
+    // Account for uncertainty in the data?
+    if (pidf.get_setpoint() == 0) {
+        target_x_velocity = 0;
+        target_y_velocity = mag_v;
+    } else {
+        target_y_velocity = std::max(0.0, pidf.compute_error() / pidf.get_time_step());
+
+        if (target_y_velocity > mag_v) {
+            target_x_velocity = 0;
+            target_y_velocity = mag_v;
+        } else {
+            target_x_velocity = std::sqrt(mag_v * mag_v - target_y_velocity * target_y_velocity);
+        }
+    }
+
+    return {target_x_velocity, target_y_velocity, 0};
 }
 
 void run_telemetry_profile(data_plotter *plotter) {
@@ -160,11 +120,11 @@ void run_telemetry_profile(data_plotter *plotter) {
                         stage_2_dry_mass_kg + stage_2_fuel_mass_kg +
                         payload_mass_kg;
 
-    double time_step = 5;
+    double time_step = 1;
     recording_vdb body{total_mass, 4, time_step};
 
     telemetry_flight_profile profile{time_step};
-    setup_flight_profile(profile);
+    setup_flight_profile(profile, "./data/data.json");
 
     const std::vector<liftoff::vector> &d_mot{body.get_d_mot()};
 
@@ -207,25 +167,24 @@ void run_telemetry_profile(data_plotter *plotter) {
     std::vector<double> recorded_drag;
     recorded_drag.push_back(0);
 
+    liftoff::vector last_v;
+    double last_telem_alt = 0;
     pidf_controller pidf{time_step, 0, 0, 0, 0};
 
     int pause_ticks = 0;
-    for (int i = 1; i < 200 / time_step; ++i) {
+    for (int i = 1; i <= 200 / time_step; ++i) {
         // Computation
         body.pre_compute();
 
         pidf.set_last_state(p.get_y());
-        /* if (i <= 175 / 5) {
-            j_plot->SetPoint(i, i * time_step, pidf.compute_error());
-        } */
+        // j_plot->SetPoint(i, i * time_step, pidf.compute_error());
 
         double telem_velocity = profile.get_velocity();
         double telem_alt = profile.get_altitude();
         if (!std::isnan(telem_velocity) && !std::isnan(telem_alt)) {
-            pidf.set_setpoint(telem_alt * 1000);
+            pidf.set_setpoint(telem_alt);
 
-            double mag = kmh_to_mps(telem_velocity);
-            const liftoff::vector &new_velocity = adjust_velocity(pidf, mag);
+            const liftoff::vector &new_velocity = adjust_velocity(pidf, telem_velocity);
             body.set_velocity(new_velocity);
         }
 
@@ -247,8 +206,11 @@ void run_telemetry_profile(data_plotter *plotter) {
         double cur_time_s = i * time_step;
         p_plot->SetPoint(i, p.get_x(), p.get_y());
         v_plot->SetPoint(i, cur_time_s, v.magnitude());
+        // a_plot->SetPoint(i, cur_time_s, (v.magnitude() - last_v.magnitude()) / time_step);
         a_plot->SetPoint(i, cur_time_s, a.magnitude());
         j_plot->SetPoint(i, cur_time_s, j.magnitude());
+
+        last_v = v;
 
         plotter_handle_gui(false);
 
@@ -266,10 +228,13 @@ void run_telemetry_profile(data_plotter *plotter) {
 
 void run_test_rocket(data_plotter *plotter) {
     telemetry_flight_profile profile{TIME_STEP};
-    setup_flight_profile(profile);
-    
+    setup_flight_profile(profile, "./data/data.json");
+
+    // https://www.youtube.com/watch?v=sbXgZg9JmkI
+    double meco_time_s = 155;
+
     pidf_controller pidf{TIME_STEP, 0, 0, 0, 0};
-    
+
     double merlin_p_e = liftoff::calc_pressure_earth(0) * 1000;
     std::vector<engine> engines;
     for (int i = 0; i < 9; ++i) {
@@ -338,8 +303,10 @@ void run_test_rocket(data_plotter *plotter) {
     liftoff::vector cached_n = n;
 
     int pause_ticks = 0;
-    long double sim_duration_ticks = to_ticks(15, 0);
+    long double sim_duration_ticks = to_ticks(200); // to_ticks(15, 0);
     for (int i = 1; i < sim_duration_ticks; ++i) {
+        double cur_time_s = i * TIME_STEP;
+
         // Computation
         body.pre_compute();
 
@@ -382,122 +349,29 @@ void run_test_rocket(data_plotter *plotter) {
             std::cout << "No propellant (tick=" << i << ")" << std::endl;
         }
 
-        if (i >= 0) {
-            for (auto &e : cur_engines) {
-                e.set_throttle(.9);
-            }
-        }
+        pidf.set_last_state(p.get_y());
 
-        if (i >= to_ticks(10)) {
-            for (auto &e : cur_engines) {
-                e.set_throttle(.73);
-            }
-        }
+        double target_v = profile.get_velocity();
+        double target_alt = profile.get_altitude();
 
-        if (i > to_ticks(20)) {
-            for (auto &e : cur_engines) {
-                e.set_throttle(.85);
-            }
-        }
-
-        if (i > to_ticks(40)) {
-            for (auto &e : cur_engines) {
-                e.set_throttle(.85);
-            }
-        }
-
-        if (i > to_ticks(60)) {
-            for (auto &e : cur_engines) {
-                e.set_throttle(.75);
-            }
-        }
-
-        if (i > to_ticks(80)) {
-            for (auto &e : cur_engines) {
-                e.set_throttle(.93);
-            }
-        }
-
-        if (i > to_ticks(90)) {
-            for (auto &e : cur_engines) {
-                e.set_throttle(.95);
-            }
-        }
-
-        if (i > to_ticks(100)) {
-            for (auto &e : cur_engines) {
-                e.set_throttle(.97);
-            }
-        }
-
-        if (i > to_ticks(120)) {
-            for (auto &e : cur_engines) {
-                e.set_throttle(.93);
-            }
-        }
-
-        if (i > to_ticks(130)) {
-            for (auto &e : cur_engines) {
-                e.set_throttle(.89);
-            }
-        }
-
-        if (i > to_ticks(140)) {
-            for (auto &e : cur_engines) {
-                e.set_throttle(.83);
-            }
-        }
-
-        if (i > to_ticks(150)) {
-            for (auto &e : cur_engines) {
-                e.set_throttle(.77);
-            }
-        }
-
-        if (i > to_ticks(160)) {
+        if (cur_time_s >= meco_time_s) {
             for (auto &e : cur_engines) {
                 e.set_throttle(0);
             }
-        }
+        } else if (!std::isnan(target_v) && !std::isnan(target_alt)) {
+            pidf.set_setpoint(target_alt);
 
-        if (i > to_ticks(630)) {
-            for (auto &e : cur_engines) {
-                e.set_throttle(.6);
-            }
-        }
+            double a = target_v - v.magnitude();
+            double f = body.get_mass() * a;
+            double f_pe = f / engines.size();
 
-        if (i > to_ticks(632)) {
             for (auto &e : cur_engines) {
-                e.set_throttle(0);
-            }
-        }
-
-        if (i > to_ticks(640)) {
-            for (auto &e : cur_engines) {
-                e.set_throttle(.2);
-            }
-        }
-
-        if (i > to_ticks(648)) {
-            for (auto &e : cur_engines) {
-                e.set_throttle(0);
-            }
-        }
-
-        if (i > to_ticks(650)) {
-            for (auto &e : cur_engines) {
-                e.set_throttle(.2);
-            }
-        }
-
-        if (i > to_ticks(658)) {
-            for (auto &e : cur_engines) {
-                e.set_throttle(0);
+                e.set_throttle(f_pe / e.get_max_thrust());
             }
         }
 
         liftoff::vector cur_thrust;
-        for (auto &e : cur_engines) {
+        for (const auto &e : cur_engines) {
             double throttle_pct = e.get_throttle();
             // Pretty egregious estimate, eek
             // https://www.grc.nasa.gov/www/k-12/airplane/rockth.html
@@ -513,21 +387,13 @@ void run_test_rocket(data_plotter *plotter) {
             body.drain_propellant(total_prop_mass);
         }
 
-        double telem_alt = profile.get_altitude();
-        double cur_velocity = v.magnitude();
-        pidf.set_last_state(p.get_y());
-        if (cur_velocity != 0 && !std::isnan(telem_alt)) {
-            pidf.set_setpoint(telem_alt * 1000);
-            if (pidf.compute_error() > 0) {
-                const liftoff::vector &adjusted = adjust_velocity(pidf, cur_velocity);
+        if (!std::isnan(target_v)) {
+            const liftoff::vector &adjusted_v = adjust_velocity(pidf, target_v);
+            double thrust_x = adjusted_v.get_x() * cur_thrust.get_y() / target_v;
+            double thrust_y = adjusted_v.get_y() * cur_thrust.get_y() / target_v;
 
-                double thrust_magnitude = cur_thrust.magnitude();
-                double tx = adjusted.get_x() * thrust_magnitude / cur_velocity;
-                double ty = adjusted.get_y() * thrust_magnitude / cur_velocity;
-                cur_thrust.set({tx, ty, 0});
-            }
+            cur_thrust.set({thrust_x, thrust_y, 0});
         }
-
         forces.at(3) = cur_thrust;
 
         profile.step();
@@ -540,7 +406,6 @@ void run_test_rocket(data_plotter *plotter) {
             return;
         }
 
-        double cur_time_s = i * TIME_STEP;
         p_plot->SetPoint(i, p.get_x(), p.get_y());
         v_plot->SetPoint(i, cur_time_s, v.magnitude());
         a_plot->SetPoint(i, cur_time_s, a.magnitude());

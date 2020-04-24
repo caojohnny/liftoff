@@ -20,8 +20,8 @@ void telemetry_flight_profile::step() {
     current_time += time_step;
 }
 
-double telemetry_flight_profile::get_telemetry_value(std::map<double, double> map) const {
-    auto it = map.lower_bound(current_time - time_step);
+double telemetry_flight_profile::get_telemetry_value(const std::map<double, double> &map) const {
+    auto it = map.lower_bound(current_time);
     if (it == map.end()) {
         return NAN;
     }

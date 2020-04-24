@@ -22,29 +22,29 @@ public:
 
     void set_p_gain(double new_p_gain);
 
-    double get_p_gain();
+    double get_p_gain() const;
 
     void set_i_gain(double new_i_gain);
 
-    double get_i_gain();
+    double get_i_gain() const;
 
     void set_d_gain(double new_d_gain);
 
-    double get_d_gain();
+    double get_d_gain() const;
 
     void set_f_gain(double new_f_gain);
 
-    double get_f_gain();
+    double get_f_gain() const;
 
     void set_setpoint(double new_setpoint);
 
-    double get_setpoint();
+    double get_setpoint() const;
 
     void set_last_state(double new_last_state);
 
-    double get_last_state();
+    double get_last_state() const;
 
-    double compute_error();
+    double compute_error() const;
 
     double compute_pidf();
 };
