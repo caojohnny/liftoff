@@ -10,6 +10,9 @@ include("${PARENT_DIR}/cmake/DownloadJson.cmake")
 find_package(ROOT REQUIRED)
 include(${ROOT_USE_FILE})
 
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PARENT_DIR}/cmake/")
+find_package(GMP REQUIRED)
+
 add_library(root INTERFACE)
 target_include_directories(root
         INTERFACE "${ROOT_INCLUDE_DIRS}")
@@ -33,8 +36,11 @@ add_executable(liftoff-cli
         telemetry_flight_profile.cpp telemetry_flight_profile.h
         rocket.cpp rocket.h
         recording_vdb.cpp recording_vdb.h
-        pidf_controller.cpp pidf_controller.h)
+        pidf_controller.cpp pidf_controller.h
+        velocity_flight_profile.cpp velocity_flight_profile.h)
 target_link_libraries(liftoff-cli
         PRIVATE liftoff-physics
         PRIVATE data_plotter
-        PRIVATE json)
+        PRIVATE json
+        PRIVATE gmpxx
+        PRIVATE gmp)

@@ -25,21 +25,12 @@ for i = 1:steps - 1
     current_error = y_profile(i + 1) - p(2, i); % vertical position error from flight profile
     desired_v = v_profile(i);
     if i > 1
-        prev_velocity = v([ 1, 2 ], i-1); % pythagorean theorem to compute mag of prev velocity
+        cur_v = v([1 2], i-1);
     else
-        prev_velocity = [ 0 0 ];
+        cur_v = [0 0];
     end
 
-    [vx, vy] = compute_velocity_naive(desired_v, current_error, time_step);
-
-    % compute components of acceleration
-    if desired_v > 0 % cur velocity is non-zero, use ratio of velocity components
-        dax = vx * a(i) / desired_v;
-        day = vy * a(i) / desired_v;
-    else % otherwise acceleration gets applied in the vertical direction
-        dax = 0;
-        day = a(i);
-    end
+    [vx, vy] = compute_velocity_naive(cur_v, desired_v, current_error, time_step);
 
     % horizontal motion
     p(1, i + 1) = p(1, i) + vx * time_step;
@@ -68,23 +59,7 @@ hold off
 
 % naive function because this should realistically probably involve some
 % kind of control algorithm such as PID
-function [x_velocity, y_velocity] = compute_velocity_naive(mag, y_error, time_step)
-    target_y_velocity = max(0, y_error / time_step); % velocity needed to bring
-                                             % error down to 0 over the
-                                             % next time_step
-
-    if target_y_velocity >= mag % target velocity gt available velocity
-                                % go as fast as allowed by provided
-                                % magnitude
-        x_velocity = 0;
-        y_velocity = mag;
-    else % target_y_velocity is smaller than our available velocity, we
-         % need to point the velocity vector towards the horizontal
-         % direction
-
-        % use pythagorean theorem to determine x component based on the
-        % clamped y value
-        x_velocity = sqrt(mag^2 - target_y_velocity^2);
-        y_velocity = target_y_velocity;
-    end
+function [x_velocity, y_velocity] = compute_velocity_naive(cur_v, mag, y_error, time_step)
+    y_velocity = min(mag, y_error / time_step);
+    x_velocity = sqrt(mag^2 - y_velocity^2);
 end

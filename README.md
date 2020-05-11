@@ -15,8 +15,9 @@ your computer.
 
 Built with [CLion](https://www.jetbrains.com/clion/)
 
-Uses [ROOT](https://root.cern.ch/) and
+Uses [ROOT](https://root.cern.ch/), 
 [SpaceXtract](https://github.com/shahar603/SpaceXtract)
+and [GMP](https://gmplib.org/)
 
 A LOT of information was found on various different sites,
 too many to list here. They've been pasted in various
