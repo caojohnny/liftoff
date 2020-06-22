@@ -179,7 +179,8 @@ find_event_time(std::map<double, double>::iterator begin, std::map<double, doubl
     return velocities.end();
 }
 
-static void setup_flight_profile(telemetry_flight_profile &raw, telemetry_flight_profile &fitted, const std::string path) {
+static void
+setup_flight_profile(telemetry_flight_profile &raw, telemetry_flight_profile &fitted, const std::string &path) {
     // JCSAT-18/KACIFIC1
 
     // This actually isn't a ballistic trajectory (I don't think,
@@ -212,6 +213,59 @@ static void setup_flight_profile(telemetry_flight_profile &raw, telemetry_flight
         raw.put_altitude(time, km_to_m(altitude));
     }
     data_file.close();
+
+    std::vector<double> st;
+    double last_unique_time = -1;
+    double last_unique_value = -1;
+    for (auto it = velocity_telem.begin(); it != velocity_telem.end(); it++) {
+        double t = it->first;
+        double v = it->second;
+        if (v != last_unique_value || it == --velocity_telem.end()) {
+            fitted.put_velocity(t, v);
+
+            if (!st.empty()) {
+                double slope = (v - last_unique_value) / (t - last_unique_time);
+                for (const auto &interp_t : st) {
+                    double dt = interp_t - last_unique_time;
+                    fitted.put_velocity(interp_t, last_unique_value + slope * dt);
+                }
+                st.clear();
+            }
+
+            last_unique_time = t;
+            last_unique_value = v;
+        } else {
+            st.push_back(t);
+        }
+    }
+
+    last_unique_time = -1;
+    last_unique_value = -1;
+
+    for (auto it = altitude_telem.begin(); it != altitude_telem.end(); it++) {
+        double t = it->first;
+        double v = it->second;
+
+        if (v != last_unique_value || it == --altitude_telem.end()) {
+            // fitted.put_altitude(t, v);
+            altitude_telem[t] = v;
+
+            if (!st.empty()) {
+                double slope = (v - last_unique_value) / (t - last_unique_time);
+                for (const auto &interp_t : st) {
+                    double dt = interp_t - last_unique_time;
+                    // fitted.put_altitude(interp_t, last_unique_value + slope * dt);
+                    altitude_telem[interp_t] = last_unique_value + slope * dt;
+                }
+                st.clear();
+            }
+
+            last_unique_time = t;
+            last_unique_value = v;
+        } else {
+            st.push_back(t);
+        }
+    }
 
     auto meco_ptr = find_event_time(++velocity_telem.begin(), velocity_telem, true);
     auto ses_1_ptr = find_event_time(meco_ptr, velocity_telem, false);
@@ -248,84 +302,49 @@ static void setup_flight_profile(telemetry_flight_profile &raw, telemetry_flight
     std::vector<std::vector<double>> alt_fit;
     for (int l = 0; l < n_events; ++l) {
         alt_fit.push_back(fit(5, times[l], legs[l]));
-
-        std::cout << "Leg " << l + 1 << ": alt(t) = " << alt_fit[l][4] << "*t.^4 + " << alt_fit[l][3] << "*t.^3 + "
-                  << alt_fit[l][2] << "*t.^2 + " << alt_fit[l][1] << "*t + " << alt_fit[l][0] << std::endl;
     }
 
+    double launch_min_alt = DBL_MAX;
     for (auto &it : altitude_telem) {
         double t = it.first;
-        for (int i = 0; i <= n_events; ++i) {
-            if (i == n_events) {
-                fitted.put_altitude(t, it.second);
-                break;
-            }
-
+        double alt = it.second;
+        for (int i = 0; i < n_events; ++i) {
             if (t < events[i]) {
-                double alt = polyval(alt_fit[i], t);
-                fitted.put_altitude(t, alt);
+                alt = polyval(alt_fit[i], t);
                 break;
             }
         }
+
+        if (alt < 0) {
+            alt = 0;
+        }
+
+        if (alt <= launch_min_alt) {
+            launch_min_alt = alt;
+            continue;
+        } else if (launch_min_alt != DBL_MIN) {
+            for (auto &fixer_it : altitude_telem) {
+                double fixer_time = fixer_it.first;
+                if (fixer_time >= t) {
+                    break;
+                }
+
+                fitted.put_altitude(fixer_time, (fixer_time / t) * launch_min_alt);
+            }
+            launch_min_alt = DBL_MIN;
+        }
+
+        fitted.put_altitude(t, alt);
     }
 
     std::ofstream transfer_file{"transfer.csv"};
     transfer_file.clear();
     transfer_file << "time (s),raw altitude (m),fitted altitude (m)\n";
     for (const auto &entry : altitude_telem) {
-        transfer_file << entry.first << "," << raw.get_altitude(entry.first) << "," << fitted.get_altitude(entry.first) << "\n";
+        transfer_file << entry.first << "," << raw.get_altitude(entry.first) << "," << fitted.get_altitude(entry.first)
+                      << "\n";
     }
     transfer_file.close();
-
-    std::vector<double> st;
-    double last_unique_time = -1;
-    double last_unique_value = -1;
-    for (auto it = velocity_telem.begin(); it != velocity_telem.end(); it++) {
-        double t = it->first;
-        double v = it->second;
-        if (v != last_unique_value || it == --velocity_telem.end()) {
-            fitted.put_velocity(t, v);
-
-            if (!st.empty()) {
-                double slope = (v - last_unique_value) / (t - last_unique_time);
-                for (const auto &interp_t : st) {
-                    double dt = interp_t - last_unique_time;
-                    fitted.put_velocity(interp_t, last_unique_value + slope * dt);
-                }
-                st.clear();
-            }
-
-            last_unique_time = t;
-            last_unique_value = v;
-        } else {
-            st.push_back(t);
-        }
-    }
-
-    /* last_unique_time = -1;
-    last_unique_value = -1;
-
-    for (auto it = altitude_telem.begin(); it != altitude_telem.end(); it++) {
-        double t = it->first;
-        double v = it->second;
-        if (v != last_unique_value || it == --altitude_telem.end()) {
-            profile.put_altitude(t, v);
-
-            if (!st.empty()) {
-                double slope = (v - last_unique_value) / (t - last_unique_time);
-                for (const auto &interp_t : st) {
-                    double dt = interp_t - last_unique_time;
-                    profile.put_altitude(interp_t, last_unique_value + slope * dt);
-                }
-                st.clear();
-            }
-
-            last_unique_time = t;
-            last_unique_value = v;
-        } else {
-            st.push_back(t);
-        }
-    } */
 }
 
 static double accel_sq(liftoff::vector va, liftoff::vector vb) {
@@ -336,7 +355,8 @@ static double accel_sq(liftoff::vector va, liftoff::vector vb) {
 }
 
 static liftoff::vector
-adjust_velocity(bool powered, pidf_controller &pidf, const liftoff::vector &cur_v, double mag_v) {
+adjust_velocity(bool powered, pidf_controller &pidf, const liftoff::vector &cur_v, const liftoff::vector &cur_a,
+                double mag_v) {
     double target_x_velocity;
     double target_y_velocity;
 
@@ -345,7 +365,11 @@ adjust_velocity(bool powered, pidf_controller &pidf, const liftoff::vector &cur_
         target_y_velocity = mag_v;
     } else {
         double error = pidf.compute_error();
-        target_y_velocity = std::min(mag_v, error / pidf.get_time_step());
+        target_y_velocity = error / pidf.get_time_step();
+        if (std::abs(target_y_velocity) > mag_v) {
+            target_y_velocity = signum(target_y_velocity) * mag_v;
+        }
+
         target_x_velocity = std::sqrt(mag_v * mag_v - target_y_velocity * target_y_velocity);
     }
 
@@ -364,12 +388,73 @@ void run_telemetry_profile(data_plotter *plotter, velocity_flight_profile &resul
                         stage_2_dry_mass_kg + stage_2_fuel_mass_kg +
                         payload_mass_kg;
 
-    double time_step = 0.5;
+    double time_step = 1;
     recording_vdb body{total_mass, 4, time_step};
 
     telemetry_flight_profile raw{time_step};
     telemetry_flight_profile fitted{time_step};
     setup_flight_profile(raw, fitted, "./data/data.json");
+
+    std::map<double, double> &velocities = raw.get_velocities();
+    // double max_time = (--velocities.end())->first;
+    double max_time = 180;
+
+    double last_t = 0;
+    double last_alt = 0;
+    double first_break_even_t = 0;
+    double last_break_even_t = 0;
+    // for (const auto &it : fitted.get_altitudes()) {
+    for (int i = 0; i < max_time / time_step; ++i) {
+        double t = i * time_step;
+        double alt = fitted.get_altitude(t);
+
+        double dt = t - last_t;
+        double dalt = alt - last_alt;
+        double v_target = dalt / dt;
+        double v = fitted.get_velocity(t);
+        if (v_target <= v) {
+            if (last_break_even_t != last_t) {
+                first_break_even_t = t;
+            }
+
+            last_break_even_t = t;
+        }
+
+        last_t = t;
+        last_alt = alt;
+    }
+
+    std::cout << "break-even = " << first_break_even_t << std::endl;
+
+    last_t = 0;
+    last_alt = 0;
+    double v_integral = 0;
+    // for (auto &it : fitted.get_altitudes()) {
+    for (int i = 0; i < max_time / time_step; ++i) {
+        double t = i * time_step;
+        double alt = fitted.get_altitude(t);
+        double v = fitted.get_velocity(t);
+
+        double dt = t - last_t;
+        v_integral += v * dt;
+        if (t < first_break_even_t) {
+            fitted.put_altitude(t, v_integral);
+        } else {
+            double target_error = alt - last_alt;
+            double prev_alt = fitted.get_altitude(t - time_step);
+            double target_alt = prev_alt + target_error;
+            if (target_alt >= alt) {
+                break;
+            }
+
+            fitted.put_altitude(t, target_alt);
+        }
+
+        last_t = t;
+        last_alt = alt;
+    }
+
+    std::cout << "break-even 2 = " << last_t << std::endl;
 
     const std::vector<liftoff::vector> &d_mot{body.get_d_mot()};
 
@@ -412,19 +497,14 @@ void run_telemetry_profile(data_plotter *plotter, velocity_flight_profile &resul
     std::vector<double> recorded_drag;
     recorded_drag.push_back(0);
 
-    double last_alt = 0;
     pidf_controller pidf{time_step, 0, 0, 0, 0};
 
     std::vector<double> t_v;
     std::vector<double> vx_v;
     std::vector<double> vy_v;
 
-    std::map<double, double> &velocities = raw.get_velocities();
-    // double max_time = (--velocities.end())->first;
-    double max_time = 180;
-
     int pause_ticks = 0;
-    for (int i = 1; i <= max_time / time_step; ++i) {
+    for (int i = 0; i < max_time / time_step; ++i) {
         double cur_time_s = i * time_step;
 
         // Computation
@@ -437,7 +517,7 @@ void run_telemetry_profile(data_plotter *plotter, velocity_flight_profile &resul
         if (!std::isnan(telem_velocity) && !std::isnan(telem_alt)) {
             pidf.set_setpoint(telem_alt);
 
-            const liftoff::vector &new_velocity = adjust_velocity(cur_time_s < 155, pidf, v, telem_velocity);
+            const liftoff::vector &new_velocity = adjust_velocity(cur_time_s < 155, pidf, v, a, telem_velocity);
             body.set_velocity(new_velocity);
         }
 
@@ -456,13 +536,24 @@ void run_telemetry_profile(data_plotter *plotter, velocity_flight_profile &resul
         }
 
         // Plotting
-        p_plot->SetPoint(i, p.get_x(), p.get_y());
-        // p_plot->SetPoint(i, cur_time_s, v.get_x());
+        // p_plot->SetPoint(i, p.get_x(), p.get_y());
+        p_plot->SetPoint(i, cur_time_s, v.get_x());
+
+        // v_plot->SetPoint(i, cur_time_s, v.magnitude());
         // v_plot->SetPoint(i, cur_time_s, v.get_x() == 0 ? M_PI / 2 : std::atan(v.get_y() / v.get_x()));
-        v_plot->SetPoint(i, cur_time_s, v.magnitude());
-        // v_plot->SetPoint(i, cur_time_s, v.get_y());
+        v_plot->SetPoint(i, cur_time_s, v.get_y());
+
         a_plot->SetPoint(i, cur_time_s, a.magnitude());
-        j_plot->SetPoint(i, cur_time_s, j.magnitude());
+
+        // j_plot->SetPoint(i, cur_time_s, j.magnitude());
+        j_plot->SetPoint(i, cur_time_s, raw.get_altitude(cur_time_s) - p.get_y());
+
+        // std::cout << cur_time_s << ": v=" << v.magnitude() << ", y=" << p.get_y() << ", error=" << pidf.compute_error() << " | x=" << p.get_x() << ", vx=" << v.get_x() << ", vy=" << v.get_y() << ", ax=" << a.get_x() << ", ay=" << a.get_y() << ", a=" << a.magnitude() << ", jx=" << j.get_x() << ", jy=" << j.get_y() << ", j=" << j.magnitude() << std::endl;
+        std::cout << cur_time_s << ", " << v.magnitude() << ", " << p.get_y() << ", " << pidf.compute_error() << ", "
+                  << p.get_x() << ", " << v.get_x() << ", " << v.get_y() << ", " << a.get_x() << ", " << a.get_y()
+                  << ", " << a.magnitude() << ", " << j.get_x() << ", " << j.get_y() << ", " << j.magnitude() << ", "
+                  << pidf.get_setpoint() << ", " << pidf.get_last_state() << ", " << raw.get_altitude(cur_time_s)
+                  << ", " << raw.get_altitude(cur_time_s) - p.get_y() << std::endl;
 
         t_v.push_back(cur_time_s);
         vx_v.push_back(v.get_x());
@@ -645,7 +736,7 @@ void run_test_rocket(data_plotter *plotter) {
         }
 
         if (!std::isnan(target_v)) {
-            const liftoff::vector &adjusted_v = adjust_velocity(cur_time_s < meco_time_s, pidf, v, target_v);
+            const liftoff::vector &adjusted_v = adjust_velocity(cur_time_s < meco_time_s, pidf, v, a, target_v);
             double thrust_x = adjusted_v.get_x() * cur_thrust.get_y() / target_v;
             double thrust_y = adjusted_v.get_y() * cur_thrust.get_y() / target_v;
 
