@@ -2,14 +2,12 @@
 
 # Demo
 
-![Actual](https://i.imgur.com/7sUrkld.png)
-
-![Simulated](https://i.imgur.com/zOQQ6TC.png)
+![Actual](https://i.postimg.cc/P5h04bG9/liftoff.png)
 
 # Build
 
-Requires [ROOT](https://root.cern.ch/) to be installed on
-your computer.
+Requires [ROOT](https://root.cern.ch/) in addition to GMP
+to be installed on your computer.
 
 # Credits
 

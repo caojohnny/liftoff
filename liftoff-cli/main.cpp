@@ -355,8 +355,7 @@ static double accel_sq(liftoff::vector va, liftoff::vector vb) {
 }
 
 static liftoff::vector
-adjust_velocity(bool powered, pidf_controller &pidf, const liftoff::vector &cur_v, const liftoff::vector &cur_a,
-                double mag_v) {
+adjust_velocity(pidf_controller &pidf, const liftoff::vector &cur_v, double mag_v) {
     double target_x_velocity;
     double target_y_velocity;
 
@@ -376,6 +375,38 @@ adjust_velocity(bool powered, pidf_controller &pidf, const liftoff::vector &cur_
     return {target_x_velocity, target_y_velocity, 0};
 }
 
+static void adjust_altitude(telemetry_flight_profile &fitted, double break_even, double max_time) {
+    double last_t = 0;
+    double last_alt = 0;
+    double v_integral = 0;
+    /* for (auto &it : fitted.get_altitudes()) {
+        double t = it.first;
+        double alt = it.second; */
+    for (int i = 0; i < max_time / fitted.get_time_step(); ++i) {
+        double t = i * fitted.get_time_step();
+        double alt = fitted.get_altitude(t);
+        double v = fitted.get_velocity(t);
+
+        double dt = t - last_t;
+        v_integral += v * dt;
+        if (t < break_even) {
+            fitted.put_altitude(t, v_integral);
+        } else {
+            double target_error = alt - last_alt;
+            double prev_alt = fitted.get_altitude(t - dt);
+            double target_alt = prev_alt + target_error;
+            if (target_alt >= alt) {
+                break;
+            }
+
+            fitted.put_altitude(t, target_alt);
+        }
+
+        last_t = t;
+        last_alt = alt;
+    }
+}
+
 void run_telemetry_profile(data_plotter *plotter, velocity_flight_profile &result) {
     // Source: https://www.spaceflightinsider.com/hangar/falcon-9/
     const double stage_1_dry_mass_kg = 25600;
@@ -388,73 +419,51 @@ void run_telemetry_profile(data_plotter *plotter, velocity_flight_profile &resul
                         stage_2_dry_mass_kg + stage_2_fuel_mass_kg +
                         payload_mass_kg;
 
-    double time_step = 1;
+    double time_step = 0.1;
     recording_vdb body{total_mass, 4, time_step};
 
     telemetry_flight_profile raw{time_step};
     telemetry_flight_profile fitted{time_step};
     setup_flight_profile(raw, fitted, "./data/data.json");
 
-    std::map<double, double> &velocities = raw.get_velocities();
+    std::map<double, double> &raw_velocities = raw.get_velocities();
     // double max_time = (--velocities.end())->first;
-    double max_time = 180;
+    double max_time = 140;
 
-    double last_t = 0;
-    double last_alt = 0;
-    double first_break_even_t = 0;
-    double last_break_even_t = 0;
-    // for (const auto &it : fitted.get_altitudes()) {
-    for (int i = 0; i < max_time / time_step; ++i) {
-        double t = i * time_step;
-        double alt = fitted.get_altitude(t);
+    double last_corrected_time = 0;
+    while (true) {
+        bool valid = true;
+        double last_t = 0;
+        double last_alt = 0;
+        /* for (const auto &it : fitted.get_altitudes()) {
+            double t = it.first;
+            double alt = it.second; */
+        for (int i = 0; i < max_time / time_step; ++i) {
+            double t = i * time_step;
+            double alt = fitted.get_altitude(t);
 
-        double dt = t - last_t;
-        double dalt = alt - last_alt;
-        double v_target = dalt / dt;
-        double v = fitted.get_velocity(t);
-        if (v_target <= v) {
-            if (last_break_even_t != last_t) {
-                first_break_even_t = t;
-            }
-
-            last_break_even_t = t;
-        }
-
-        last_t = t;
-        last_alt = alt;
-    }
-
-    std::cout << "break-even = " << first_break_even_t << std::endl;
-
-    last_t = 0;
-    last_alt = 0;
-    double v_integral = 0;
-    // for (auto &it : fitted.get_altitudes()) {
-    for (int i = 0; i < max_time / time_step; ++i) {
-        double t = i * time_step;
-        double alt = fitted.get_altitude(t);
-        double v = fitted.get_velocity(t);
-
-        double dt = t - last_t;
-        v_integral += v * dt;
-        if (t < first_break_even_t) {
-            fitted.put_altitude(t, v_integral);
-        } else {
+            double dt = t - last_t;
             double target_error = alt - last_alt;
-            double prev_alt = fitted.get_altitude(t - time_step);
-            double target_alt = prev_alt + target_error;
-            if (target_alt >= alt) {
+            double target_v = target_error / dt;
+            double v = fitted.get_velocity(t);
+            if (v < target_v && last_corrected_time < t) {
+                last_corrected_time = t;
+                adjust_altitude(fitted, t, max_time);
+
+                valid = false;
                 break;
             }
 
-            fitted.put_altitude(t, target_alt);
+            last_t = t;
+            last_alt = alt;
         }
 
-        last_t = t;
-        last_alt = alt;
+        if (valid) {
+            break;
+        }
     }
 
-    std::cout << "break-even 2 = " << last_t << std::endl;
+    std::cout << "pitch time = " << last_corrected_time << std::endl;
 
     const std::vector<liftoff::vector> &d_mot{body.get_d_mot()};
 
@@ -512,16 +521,14 @@ void run_telemetry_profile(data_plotter *plotter, velocity_flight_profile &resul
 
         pidf.set_last_state(p.get_y());
 
-        double telem_velocity = fitted.get_velocity();
-        double telem_alt = fitted.get_altitude();
+        double telem_velocity = fitted.get_velocity(cur_time_s);
+        double telem_alt = fitted.get_altitude(cur_time_s);
         if (!std::isnan(telem_velocity) && !std::isnan(telem_alt)) {
             pidf.set_setpoint(telem_alt);
 
-            const liftoff::vector &new_velocity = adjust_velocity(cur_time_s < 155, pidf, v, a, telem_velocity);
+            const liftoff::vector &new_velocity = adjust_velocity(pidf, v, telem_velocity);
             body.set_velocity(new_velocity);
         }
-
-        fitted.step();
 
         double drag_x = liftoff::calc_drag_earth(F9_CD, p.get_y(), v.get_x(), F9_A);
         double drag_y = liftoff::calc_drag_earth(F9_CD, p.get_y(), v.get_y(), F9_A);
@@ -536,19 +543,18 @@ void run_telemetry_profile(data_plotter *plotter, velocity_flight_profile &resul
         }
 
         // Plotting
-        // p_plot->SetPoint(i, p.get_x(), p.get_y());
-        p_plot->SetPoint(i, cur_time_s, v.get_x());
+        p_plot->SetPoint(i, p.get_x(), p.get_y());
+        // p_plot->SetPoint(i, cur_time_s, v.get_x());
 
         // v_plot->SetPoint(i, cur_time_s, v.magnitude());
-        // v_plot->SetPoint(i, cur_time_s, v.get_x() == 0 ? M_PI / 2 : std::atan(v.get_y() / v.get_x()));
-        v_plot->SetPoint(i, cur_time_s, v.get_y());
+        v_plot->SetPoint(i, cur_time_s, v.get_x() == 0 ? M_PI / 2 : std::atan(v.get_y() / v.get_x()));
+        // v_plot->SetPoint(i, cur_time_s, v.get_y());
 
         a_plot->SetPoint(i, cur_time_s, a.magnitude());
 
-        // j_plot->SetPoint(i, cur_time_s, j.magnitude());
-        j_plot->SetPoint(i, cur_time_s, raw.get_altitude(cur_time_s) - p.get_y());
+        j_plot->SetPoint(i, cur_time_s, j.magnitude());
+        // j_plot->SetPoint(i, cur_time_s, raw.get_altitude(cur_time_s) - p.get_y());
 
-        // std::cout << cur_time_s << ": v=" << v.magnitude() << ", y=" << p.get_y() << ", error=" << pidf.compute_error() << " | x=" << p.get_x() << ", vx=" << v.get_x() << ", vy=" << v.get_y() << ", ax=" << a.get_x() << ", ay=" << a.get_y() << ", a=" << a.magnitude() << ", jx=" << j.get_x() << ", jy=" << j.get_y() << ", j=" << j.magnitude() << std::endl;
         std::cout << cur_time_s << ", " << v.magnitude() << ", " << p.get_y() << ", " << pidf.compute_error() << ", "
                   << p.get_x() << ", " << v.get_x() << ", " << v.get_y() << ", " << a.get_x() << ", " << a.get_y()
                   << ", " << a.magnitude() << ", " << j.get_x() << ", " << j.get_y() << ", " << j.magnitude() << ", "
@@ -736,7 +742,7 @@ void run_test_rocket(data_plotter *plotter) {
         }
 
         if (!std::isnan(target_v)) {
-            const liftoff::vector &adjusted_v = adjust_velocity(cur_time_s < meco_time_s, pidf, v, a, target_v);
+            const liftoff::vector &adjusted_v = adjust_velocity(pidf, v, target_v);
             double thrust_x = adjusted_v.get_x() * cur_thrust.get_y() / target_v;
             double thrust_y = adjusted_v.get_y() * cur_thrust.get_y() / target_v;
 

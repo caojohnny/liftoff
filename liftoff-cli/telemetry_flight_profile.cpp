@@ -38,7 +38,16 @@ double telemetry_flight_profile::get_telemetry_value(double time, const std::map
         return NAN;
     }
 
-    return it->second;
+    double dt = std::abs(it->first - time);
+    double val = it->second;
+    if (it != map.begin()) {
+        auto check_it = --it;
+        if (std::abs(check_it->first - time) < dt) {
+            return check_it->second;
+        }
+    }
+
+    return val;
 }
 
 double telemetry_flight_profile::get_velocity() const {
