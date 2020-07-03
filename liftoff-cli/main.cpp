@@ -94,42 +94,10 @@ static mpf_class det(const std::vector<std::vector<mpf_class>> &v) {
     return result;
 }
 
+// Linear solver using Cramer's rule
 // https://neutrium.net/mathematics/least-squares-fitting-of-a-polynomial/
-// Least-squares polynomial regression using Cramer's rule
-static std::vector<double> fit(int order, const std::vector<double> &x, const std::vector<double> &y) {
-    if (x.size() != y.size()) {
-        throw std::invalid_argument("x/y are not the same size");
-    }
-
-    double n = x.size();
-
-    std::vector<std::vector<mpf_class>> m;
-    for (int a_row = 0; a_row <= order; ++a_row) {
-        m.emplace_back();
-
-        for (int a_col = 0; a_col <= order; ++a_col) {
-            mpf_class sum{0};
-            for (int i = 0; i < n; ++i) {
-                mpf_class term{x[i]};
-                mpf_pow_ui(term.get_mpf_t(), term.get_mpf_t(), a_row + a_col);
-
-                sum += term;
-            }
-
-            m[a_row].push_back(sum);
-        }
-    }
-
-    std::vector<double> b;
-    for (int b_row = 0; b_row <= order; ++b_row) {
-        double sum = 0;
-        for (int i = 0; i < n; ++i) {
-            sum += std::pow(x[i], b_row) * y[i];
-        }
-
-        b.push_back(sum);
-    }
-
+static std::vector<double>
+linsolve(int order, const std::vector<std::vector<mpf_class>> &m, const std::vector<mpf_class> &b) {
     const mpf_class &det_m{det(m)};
 
     std::vector<double> coeffs;
@@ -155,7 +123,66 @@ static std::vector<double> fit(int order, const std::vector<double> &x, const st
     return coeffs;
 }
 
-static double polyval(const std::vector<double> poly, double x) {
+// Polynomial regression utilizing a Vandermonde matrix
+static std::vector<double> fit(int order, const std::vector<double> &x, const std::vector<double> &y) {
+    if (x.size() != y.size()) {
+        throw std::invalid_argument("x/y are not the same size");
+    }
+
+    double n = x.size();
+
+    std::vector<std::vector<mpf_class>> m;
+    for (int a_row = 0; a_row <= order; ++a_row) {
+        m.emplace_back();
+
+        for (int a_col = 0; a_col <= order; ++a_col) {
+            mpf_class sum{0};
+            for (int i = 0; i < n; ++i) {
+                mpf_class term{x[i]};
+                mpf_pow_ui(term.get_mpf_t(), term.get_mpf_t(), a_row + a_col);
+
+                sum += term;
+            }
+
+            m[a_row].push_back(sum);
+        }
+    }
+
+    std::vector<mpf_class> b;
+    for (int b_row = 0; b_row <= order; ++b_row) {
+        mpf_class sum{0};
+        for (int i = 0; i < n; ++i) {
+            sum += std::pow(x[i], b_row) * y[i];
+        }
+
+        b.push_back(sum);
+    }
+
+    return linsolve(order, m, b);
+}
+
+// Adapted from: https://stackoverflow.com/questions/15191088/how-to-do-a-polynomial-fit-with-fixed-points
+static std::vector<double> fit(int order, const std::vector<double> &x, const std::vector<double> &y,
+                               const std::map<double, double> &forced_points) {
+    std::vector<std::vector<mpf_class>> m;
+    std::vector<mpf_class> b;
+
+    int m_dim = order + 1 + x.size();
+    for (int i = 0; i < m_dim; ++i) {
+        m.emplace_back();
+        b.emplace_back();
+
+        for (int j = 0; j < m_dim; ++j) {
+            m[i].emplace_back();
+        }
+    }
+
+    // TODO
+
+    return linsolve(order, m, b);
+}
+
+static double polyval(const std::vector<double> &poly, double x) {
     double val = 0;
     for (int i = 0; i < poly.size(); ++i) {
         val += poly[i] * pow(x, i);
@@ -337,21 +364,22 @@ setup_flight_profile(telemetry_flight_profile &raw, telemetry_flight_profile &fi
         fitted.put_altitude(t, alt);
     }
 
+    bool meco_passed = false;
+    double meco_coast_t = *(times[0].end() - 1).base();
+    double meco_coast_alt = *(legs[0].end() - 1).base();
+
+    double ses_coast_t = events[1];
+    double ses_coast_alt = fitted.get_altitude(ses_coast_t);
+
     std::ofstream transfer_file{"transfer.csv"};
     transfer_file.clear();
     transfer_file << "time (s),raw altitude (m),fitted altitude (m)\n";
     for (const auto &entry : altitude_telem) {
-        transfer_file << entry.first << "," << raw.get_altitude(entry.first) << "," << fitted.get_altitude(entry.first)
+        transfer_file << entry.first << "," << raw.get_altitude(entry.first) << ","
+                      << fitted.get_altitude(entry.first)
                       << "\n";
     }
     transfer_file.close();
-}
-
-static double accel_sq(liftoff::vector va, liftoff::vector vb) {
-    double dvx = va.get_x() - vb.get_x();
-    double dvy = va.get_y() - vb.get_y();
-    double dvz = va.get_z() - vb.get_z();
-    return dvx * dvx + dvy * dvy + dvz * dvz;
 }
 
 static liftoff::vector
@@ -387,7 +415,7 @@ static void adjust_altitude(telemetry_flight_profile &fitted, double break_even,
         double alt = fitted.get_altitude(t);
         double v = fitted.get_velocity(t);
 
-        double dt = t - last_t;
+        double dt = fitted.get_time_step();
         v_integral += v * dt;
         if (t < break_even) {
             fitted.put_altitude(t, v_integral);
@@ -419,7 +447,7 @@ void run_telemetry_profile(data_plotter *plotter, velocity_flight_profile &resul
                         stage_2_dry_mass_kg + stage_2_fuel_mass_kg +
                         payload_mass_kg;
 
-    double time_step = 0.1;
+    double time_step = 1;
     recording_vdb body{total_mass, 4, time_step};
 
     telemetry_flight_profile raw{time_step};
@@ -428,7 +456,7 @@ void run_telemetry_profile(data_plotter *plotter, velocity_flight_profile &resul
 
     std::map<double, double> &raw_velocities = raw.get_velocities();
     // double max_time = (--velocities.end())->first;
-    double max_time = 140;
+    double max_time = 180;
 
     double last_corrected_time = 0;
     while (true) {
@@ -543,21 +571,23 @@ void run_telemetry_profile(data_plotter *plotter, velocity_flight_profile &resul
         }
 
         // Plotting
-        p_plot->SetPoint(i, p.get_x(), p.get_y());
-        // p_plot->SetPoint(i, cur_time_s, v.get_x());
+        // p_plot->SetPoint(i, p.get_x(), p.get_y());
+        p_plot->SetPoint(i, cur_time_s, v.get_x());
 
-        // v_plot->SetPoint(i, cur_time_s, v.magnitude());
-        v_plot->SetPoint(i, cur_time_s, v.get_x() == 0 ? M_PI / 2 : std::atan(v.get_y() / v.get_x()));
-        // v_plot->SetPoint(i, cur_time_s, v.get_y());
+        v_plot->SetPoint(i, cur_time_s, v.magnitude());
+        // v_plot->SetPoint(i, cur_time_s, v.get_x() == 0 ? M_PI / 2 : std::atan(v.get_y() / v.get_x()));
+        v_plot->SetPoint(i, cur_time_s, v.get_y());
 
         a_plot->SetPoint(i, cur_time_s, a.magnitude());
 
         j_plot->SetPoint(i, cur_time_s, j.magnitude());
         // j_plot->SetPoint(i, cur_time_s, raw.get_altitude(cur_time_s) - p.get_y());
 
-        std::cout << cur_time_s << ", " << v.magnitude() << ", " << p.get_y() << ", " << pidf.compute_error() << ", "
+        std::cout << cur_time_s << ", " << v.magnitude() << ", " << p.get_y() << ", " << pidf.compute_error()
+                  << ", "
                   << p.get_x() << ", " << v.get_x() << ", " << v.get_y() << ", " << a.get_x() << ", " << a.get_y()
-                  << ", " << a.magnitude() << ", " << j.get_x() << ", " << j.get_y() << ", " << j.magnitude() << ", "
+                  << ", " << a.magnitude() << ", " << j.get_x() << ", " << j.get_y() << ", " << j.magnitude()
+                  << ", "
                   << pidf.get_setpoint() << ", " << pidf.get_last_state() << ", " << raw.get_altitude(cur_time_s)
                   << ", " << raw.get_altitude(cur_time_s) - p.get_y() << std::endl;
 
