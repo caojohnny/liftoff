@@ -65,121 +65,299 @@ static int signum(double x) {
     return (x > 0) - (x < 0);
 }
 
-// Laplace expansion to compute the determinant of a 2d vector
-static mpf_class det(const std::vector<std::vector<mpf_class>> &v) {
-    if (v.size() == 2 && v[0].size() == 2) {
-        return v[0][0] * v[1][1] - v[0][1] * v[1][0];
+static void print_mat(std::vector<std::vector<mpf_class>> mat) {
+    std::cout << "[";
+    for (int i = 0; i < mat.size(); ++i) {
+        const std::vector<mpf_class> &row = mat[i];
+        std::cout << "[";
+        for (int j = 0; j < row.size(); ++j) {
+            std::cout << row[j].get_d() << " ";
+        }
+
+        std::cout << "]";
+
+        if (i != row.size() - 1) {
+            std::cout << ";" << std::endl;
+        }
+    }
+    std::cout << "]" << std::endl;
+}
+
+static void print_vec(std::vector<mpf_class> v) {
+    std::cout << "[";
+    for (int i = 0; i < v.size(); ++i) {
+        std::cout << v[i].get_d() << " ";
+    }
+    std::cout << "]" << std::endl;
+}
+
+static void print_vec(std::vector<double> v) {
+    std::cout << "[";
+    for (int i = 0; i < v.size(); ++i) {
+        std::cout << v[i] << " ";
+    }
+    std::cout << "]" << std::endl;
+}
+
+static void print_poly(std::vector<double> poly, char suffix) {
+    std::cout << "y" << suffix << " = ";
+    for (int i = 0; i < poly.size(); ++i) {
+        std::cout << poly[i] << "*x" << suffix << ".^" << i;
+
+        if (i != poly.size() - 1) {
+            std::cout << " + ";
+        }
     }
 
-    mpf_class result{0, REQ_PRECISION};
-    for (int col = 0; col < v[0].size(); ++col) {
-        int cofactor_sign = col % 2 == 0 ? 1 : -1;
+    std::cout << ";" << std::endl;
+}
 
-        std::vector<std::vector<mpf_class>> c;
-        for (int c_row = 0, v_row = 1; v_row < v.size(); ++c_row, ++v_row) {
-            c.emplace_back();
+// Doolittle LU decomposition with partial pivot (L is the identity diagonal)
+// Adapted from: https://en.wikipedia.org/wiki/LU_decomposition#C_code_examples
+// Adapted from: https://www.codewithc.com/lu-decomposition-algorithm-flowchart/
+int lup(std::vector<std::vector<mpf_class>> &mat, std::vector<int> &perm) {
+    int pivot_count = 0;
 
-            for (int v_col = 0; v_col < v[0].size(); ++v_col) {
-                if (v_col == col) {
-                    continue;
-                }
+    // Each element of the permutation vector represents a row of the permutation matrix
+    // The integer is the index on that row at which the 1 is located
+    for (int i = 0; i < mat.size(); ++i) {
+        perm.push_back(i);
+    }
 
-                c[c_row].push_back(v[v_row][v_col]);
+    // Pivoting portion
+    for (int row = 0; row < mat.size(); ++row) {
+        int max_row = row;
+        mpf_class max_cell{0, REQ_PRECISION};
+
+        // Find the max cell on the diagonal cell for the current row
+        for (int r = row; r < mat.size(); ++r) {
+            mpf_class &cell_mag = mat[r][row];
+            if (cell_mag < 0) {
+                cell_mag = -cell_mag;
+            }
+
+            if (max_cell < cell_mag) {
+                max_cell = cell_mag;
+                max_row = r;
             }
         }
 
-        result += v[0][col] * cofactor_sign * det(c);
+        // max_row has the greatest magnitude, swap into this row
+        if (max_row != row) {
+            std::swap(mat[row], mat[max_row]);
+            std::swap(perm[row], perm[max_row]);
+
+            ++pivot_count;
+        }
+    }
+
+    // The loop works by going row-by-row and whittling down each
+    // term added from multiplying the L and U portions, isolating
+    // the value of the cell
+    for (int row = 0; row < mat.size(); ++row) {
+        // Before the `row` column: L portion
+        for (int col = 0; col < row; ++col) {
+            for (int p = 0; p < col; ++p) {
+                mat[row][col] -= mat[row][p] * mat[p][col];
+            }
+
+            mat[row][col] /= mat[col][col];
+        }
+
+        // After the `row` column: U portion
+        for (int col = row; col < mat.size(); ++col) {
+            for (int p = 0; p < row; ++p) {
+                mat[row][col] -= mat[row][p] * mat[p][col];
+            }
+        }
+    }
+
+    return pivot_count;
+}
+
+// Doolittle LU decomposition forward/backward substitution linear solver function
+// Adapted from: https://en.wikipedia.org/wiki/LU_decomposition#C_code_examples
+std::vector<double> lup_linsolve(const std::vector<std::vector<mpf_class>> &mat, const std::vector<int> &perm,
+                                 const std::vector<mpf_class> &b) {
+    std::vector<mpf_class> sol;
+    sol.reserve(mat.size());
+    for (int i = 0; i < mat.size(); ++i) {
+        sol.emplace_back(0, REQ_PRECISION);
+    }
+
+    for (int row = 0; row < mat.size(); ++row) {
+        // sol = P*b
+        sol[row] = b[perm[row]];
+
+        // Forward substitution
+        // col < row so we are taking the L portion
+        // sol = P*b = L*y, whittle down sol of terms
+        // from the L portion until we can isolate y
+        for (int col = 0; col < row; col++) {
+            sol[row] -= mat[row][col] * sol[col];
+        }
+    }
+
+    for (int row = mat.size() - 1; row >= 0; --row) {
+        // Backwards substitution
+        // row < col, so we are taking the U portion
+        // sol = y = U*x, whittle down sol until we can
+        // isolate x -> return
+        for (int col = row + 1; col < mat.size(); col++) {
+            sol[row] -= mat[row][col] * sol[col];
+        }
+
+        // Since Doolittle gives an identity L portion,
+        // divide by the diagonal for the U portion in order
+        // to determine the solution
+        sol[row] /= mat[row][row];
+    }
+
+    // Convert to double
+    std::vector<double> result;
+    result.reserve(sol.size());
+    for (const auto &coeff : sol) {
+        result.push_back(coeff.get_d());
     }
 
     return result;
 }
 
-// Linear solver using Cramer's rule
-// https://neutrium.net/mathematics/least-squares-fitting-of-a-polynomial/
 static std::vector<double>
-linsolve(int order, const std::vector<std::vector<mpf_class>> &m, const std::vector<mpf_class> &b) {
-    const mpf_class &det_m{det(m)};
+linsolve(std::vector<std::vector<mpf_class>> &m, const std::vector<mpf_class> &b) {
+    std::vector<int> perm;
+    lup(m, perm);
 
-    std::vector<double> coeffs;
-    for (int i = 0; i <= order; ++i) {
-        std::vector<std::vector<mpf_class>> m_i;
-        for (int mi_row = 0; mi_row <= order; ++mi_row) {
-            m_i.emplace_back();
-
-            for (int mi_col = 0; mi_col <= order; ++mi_col) {
-                if (mi_col == i) {
-                    m_i[mi_row].emplace_back(b[mi_row]);
-                } else {
-                    m_i[mi_row].push_back(m[mi_row][mi_col]);
-                }
-            }
-        }
-
-        const mpf_class &det_mi{det(m_i)};
-        const mpf_class &coeff = det_mi / det_m;
-        coeffs.push_back(coeff.get_d());
-    }
-
-    return coeffs;
+    return lup_linsolve(m, perm, b);
 }
 
-// Polynomial regression utilizing a Vandermonde matrix
-static std::vector<double> fit(int order, const std::vector<double> &x, const std::vector<double> &y) {
-    if (x.size() != y.size()) {
-        throw std::invalid_argument("x/y are not the same size");
-    }
-
-    double n = x.size();
+// https://sameradeeb-new.srv.ualberta.ca/introduction-to-numerical-analysis/polynomial-interpolation/
+static std::vector<double> lip(const std::vector<std::pair<double, double>> &forced_points) {
+    int order = forced_points.size() - 1;
 
     std::vector<std::vector<mpf_class>> m;
-    for (int a_row = 0; a_row <= order; ++a_row) {
+    for (int i = 0; i <= order; ++i) {
         m.emplace_back();
 
-        for (int a_col = 0; a_col <= order; ++a_col) {
-            mpf_class sum{0};
-            for (int i = 0; i < n; ++i) {
-                mpf_class term{x[i]};
-                mpf_pow_ui(term.get_mpf_t(), term.get_mpf_t(), a_row + a_col);
+        double x = forced_points[i].first;
+        std::vector<mpf_class> &row = m[i];
+        for (int j = 0; j <= order; ++j) {
+            mpf_class cell{x, REQ_PRECISION};
+            mpf_pow_ui(cell.get_mpf_t(), cell.get_mpf_t(), j);
 
-                sum += term;
-            }
-
-            m[a_row].push_back(sum);
+            row.push_back(cell);
         }
     }
 
     std::vector<mpf_class> b;
-    for (int b_row = 0; b_row <= order; ++b_row) {
-        mpf_class sum{0};
-        for (int i = 0; i < n; ++i) {
-            sum += std::pow(x[i], b_row) * y[i];
-        }
-
-        b.push_back(sum);
+    for (int i = 0; i <= order; ++i) {
+        double y = forced_points[i].second;
+        b.emplace_back(y, REQ_PRECISION);
     }
 
-    return linsolve(order, m, b);
+    return linsolve(m, b);
 }
 
 // Adapted from: https://stackoverflow.com/questions/15191088/how-to-do-a-polynomial-fit-with-fixed-points
 static std::vector<double> fit(int order, const std::vector<double> &x, const std::vector<double> &y,
-                               const std::map<double, double> &forced_points) {
-    std::vector<std::vector<mpf_class>> m;
-    std::vector<mpf_class> b;
+                               const std::vector<std::pair<double, double>> &forced_points) {
+    if (x.size() != y.size()) {
+        throw std::invalid_argument("x/y are not the same size");
+    }
 
-    int m_dim = order + 1 + x.size();
-    for (int i = 0; i < m_dim; ++i) {
-        m.emplace_back();
-        b.emplace_back();
+    std::vector<std::vector<mpf_class>> x_n;
+    x_n.reserve(2 * order + 1);
+    for (int i = 0; i < 2 * order + 1; ++i) {
+        x_n.emplace_back();
 
-        for (int j = 0; j < m_dim; ++j) {
-            m[i].emplace_back();
+        std::vector<mpf_class> &row = x_n[i];
+        for (int j = 0; j < x.size(); ++j) {
+            mpf_class cell{x[j], REQ_PRECISION};
+            mpf_pow_ui(cell.get_mpf_t(), cell.get_mpf_t(), i);
+
+            row.push_back(cell);
         }
     }
 
-    // TODO
+    std::vector<mpf_class> yx_n;
+    yx_n.reserve(2 * order + 1);
+    for (int i = 0; i < order + 1; ++i) {
+        mpf_class sum{0, REQ_PRECISION};
 
-    return linsolve(order, m, b);
+        const std::vector<mpf_class> &row = x_n[i];
+        for (int j = 0; j < row.size(); ++j) {
+            mpf_class term{row[j], REQ_PRECISION};
+            term *= y[j];
+
+            sum += term;
+        }
+
+        yx_n.push_back(sum);
+    }
+
+    std::vector<mpf_class> x_n_sum;
+    for (int i = 0; i < x_n.size(); ++i) {
+        mpf_class sum{0, REQ_PRECISION};
+
+        std::vector<mpf_class> &row = x_n[i];
+        for (int j = 0; j < row.size(); ++j) {
+            sum += row[j];
+        }
+
+        x_n_sum.push_back(sum);
+    }
+
+    std::vector<std::vector<mpf_class>> xf_n;
+    for (int i = 0; i < order + 1; ++i) {
+        xf_n.emplace_back();
+
+        std::vector<mpf_class> &row = xf_n[i];
+        for (int j = 0; j < forced_points.size(); ++j) {
+            mpf_class cell{forced_points[j].first, REQ_PRECISION};
+            mpf_pow_ui(cell.get_mpf_t(), cell.get_mpf_t(), i);
+
+            row.push_back(cell);
+        }
+    }
+
+    std::vector<std::vector<mpf_class>> m;
+    std::vector<mpf_class> b;
+
+    int lsq_bound = order + 1;
+    int m_dim = lsq_bound + forced_points.size();
+    for (int i = 0; i < m_dim; ++i) {
+        m.emplace_back();
+
+        std::vector<mpf_class> &row = m[i];
+        for (int j = 0; j < m_dim; ++j) {
+            if (i < lsq_bound && j < lsq_bound) {
+                row.push_back(x_n_sum[i + j]);
+            } else if (i < lsq_bound && j >= lsq_bound) {
+                mpf_class k2{2, REQ_PRECISION};
+                row.emplace_back(xf_n[i][j - lsq_bound] / k2, REQ_PRECISION);
+            } else if (i >= lsq_bound && j < lsq_bound) {
+                row.emplace_back(xf_n[j][i - lsq_bound]);
+            } else {
+                row.emplace_back(0, REQ_PRECISION);
+            }
+        }
+
+        if (i < lsq_bound) {
+            b.push_back(yx_n[i]);
+        } else {
+            b.emplace_back(forced_points[i - lsq_bound].second, REQ_PRECISION);
+        }
+    }
+
+    const std::vector<double> &sol = linsolve(m, b);
+
+    std::vector<double> poly;
+    poly.reserve(order + 1);
+    for (int i = 0; i < order + 1; ++i) {
+        poly.push_back(sol[i]);
+    }
+
+    return poly;
 }
 
 static double polyval(const std::vector<double> &poly, double x) {
@@ -298,6 +476,8 @@ setup_flight_profile(telemetry_flight_profile &raw, telemetry_flight_profile &fi
     auto ses_1_ptr = find_event_time(meco_ptr, velocity_telem, false);
     auto seco_1_ptr = find_event_time(ses_1_ptr, velocity_telem, true);
 
+    // events contains timestamps for beginning of the next leg
+    // i.e. leg 1 < meco; meco <= leg 2
     std::vector<double> events = {meco_ptr->first, ses_1_ptr->first, seco_1_ptr->first};
     std::cout << "meco = " << events[0] << std::endl;
     std::cout << "ses_1 = " << events[1] << std::endl;
@@ -327,8 +507,26 @@ setup_flight_profile(telemetry_flight_profile &raw, telemetry_flight_profile &fi
     }
 
     std::vector<std::vector<double>> alt_fit;
+    std::vector<std::pair<double, double>> force_points;
     for (int l = 0; l < n_events; ++l) {
-        alt_fit.push_back(fit(5, times[l], legs[l]));
+        force_points.clear();
+        if (l == 0) {
+            for (auto it = times[1].begin(); it != times[1].end(); ++it) {
+                if (force_points.size() == 1) {
+                    break;
+                }
+                force_points.emplace_back(*it.base(), altitude_telem[*it.base()]);
+            }
+        } else if (l == 2) {
+            for (auto it = times[l - 1].rbegin(); it != times[l - 1].rend(); ++it) {
+                if (force_points.size() == 1) {
+                    break;
+                }
+                force_points.emplace_back(*it.base(), altitude_telem[*it.base()]);
+            }
+        }
+
+        alt_fit.push_back(fit(5 + force_points.size() - 1, times[l], legs[l], force_points));
     }
 
     double launch_min_alt = DBL_MAX;
@@ -346,36 +544,39 @@ setup_flight_profile(telemetry_flight_profile &raw, telemetry_flight_profile &fi
             alt = 0;
         }
 
-        if (alt <= launch_min_alt) {
-            launch_min_alt = alt;
-            continue;
-        } else if (launch_min_alt != DBL_MIN) {
-            for (auto &fixer_it : altitude_telem) {
-                double fixer_time = fixer_it.first;
-                if (fixer_time >= t) {
-                    break;
-                }
-
-                fitted.put_altitude(fixer_time, (fixer_time / t) * launch_min_alt);
-            }
-            launch_min_alt = DBL_MIN;
-        }
-
         fitted.put_altitude(t, alt);
     }
 
-    bool meco_passed = false;
-    double meco_coast_t = *(times[0].end() - 1).base();
-    double meco_coast_alt = *(legs[0].end() - 1).base();
+    force_points.clear();
+    for (auto it = times[0].rbegin(); it != times[0].rend(); ++it) {
+        if (force_points.size() == 3) {
+            break;
+        }
+        force_points.emplace_back(*it.base(), fitted.get_altitude(*it.base()));
+    }
 
-    double ses_coast_t = events[1];
-    double ses_coast_alt = fitted.get_altitude(ses_coast_t);
+    for (auto it = times[2].begin(); it != times[2].end(); ++it) {
+        if (force_points.size() == 6) {
+            break;
+        }
+        force_points.emplace_back(*it.base(), fitted.get_altitude(*it.base()));
+    }
+
+    const std::vector<double> &lip_fit = lip(force_points);
+    // const std::vector<double> &lip_fit = fit(force_points.size() - 1, times[1], legs[1], force_points);
+
+    std::cout << std::setprecision(64);
+    print_poly(lip_fit, '1');
+    std::cout << std::setprecision(4);
+
+    for (const auto &t : times[1]) {
+        fitted.put_altitude(t, polyval(lip_fit, t));
+    }
 
     std::ofstream transfer_file{"transfer.csv"};
     transfer_file.clear();
-    transfer_file << "time (s),raw altitude (m),fitted altitude (m)\n";
     for (const auto &entry : altitude_telem) {
-        transfer_file << entry.first << "," << raw.get_altitude(entry.first) << ","
+        transfer_file << raw.get_altitude(entry.first) << ","
                       << fitted.get_altitude(entry.first)
                       << "\n";
     }
