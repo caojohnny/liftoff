@@ -99,10 +99,10 @@ static void print_vec(std::vector<double> v) {
     std::cout << "]" << std::endl;
 }
 
-static void print_poly(std::vector<double> poly, char suffix) {
+static void print_poly(std::vector<mpf_class> poly, char suffix) {
     std::cout << "y" << suffix << " = ";
     for (int i = 0; i < poly.size(); ++i) {
-        std::cout << poly[i] << "*x" << suffix << ".^" << i;
+        std::cout << poly[i].get_d() << "*x" << suffix << ".^" << i;
 
         if (i != poly.size() - 1) {
             std::cout << " + ";
@@ -177,8 +177,8 @@ int lup(std::vector<std::vector<mpf_class>> &mat, std::vector<int> &perm) {
 
 // Doolittle LU decomposition forward/backward substitution linear solver function
 // Adapted from: https://en.wikipedia.org/wiki/LU_decomposition#C_code_examples
-std::vector<double> lup_linsolve(const std::vector<std::vector<mpf_class>> &mat, const std::vector<int> &perm,
-                                 const std::vector<mpf_class> &b) {
+std::vector<mpf_class> lup_linsolve(const std::vector<std::vector<mpf_class>> &mat, const std::vector<int> &perm,
+                                    const std::vector<mpf_class> &b) {
     std::vector<mpf_class> sol;
     sol.reserve(mat.size());
     for (int i = 0; i < mat.size(); ++i) {
@@ -213,17 +213,10 @@ std::vector<double> lup_linsolve(const std::vector<std::vector<mpf_class>> &mat,
         sol[row] /= mat[row][row];
     }
 
-    // Convert to double
-    std::vector<double> result;
-    result.reserve(sol.size());
-    for (const auto &coeff : sol) {
-        result.push_back(coeff.get_d());
-    }
-
-    return result;
+    return sol;
 }
 
-static std::vector<double>
+static std::vector<mpf_class>
 linsolve(std::vector<std::vector<mpf_class>> &m, const std::vector<mpf_class> &b) {
     std::vector<int> perm;
     lup(m, perm);
@@ -232,7 +225,7 @@ linsolve(std::vector<std::vector<mpf_class>> &m, const std::vector<mpf_class> &b
 }
 
 // https://sameradeeb-new.srv.ualberta.ca/introduction-to-numerical-analysis/polynomial-interpolation/
-static std::vector<double> lip(const std::vector<std::pair<double, double>> &forced_points) {
+static std::vector<mpf_class> lip(const std::vector<std::pair<double, double>> &forced_points) {
     int order = forced_points.size() - 1;
 
     std::vector<std::vector<mpf_class>> m;
@@ -259,8 +252,8 @@ static std::vector<double> lip(const std::vector<std::pair<double, double>> &for
 }
 
 // Adapted from: https://stackoverflow.com/questions/15191088/how-to-do-a-polynomial-fit-with-fixed-points
-static std::vector<double> fit(int order, const std::vector<double> &x, const std::vector<double> &y,
-                               const std::vector<std::pair<double, double>> &forced_points) {
+static std::vector<mpf_class> fit(int order, const std::vector<double> &x, const std::vector<double> &y,
+                                  const std::vector<std::pair<double, double>> &forced_points) {
     if (x.size() != y.size()) {
         throw std::invalid_argument("x/y are not the same size");
     }
@@ -349,9 +342,9 @@ static std::vector<double> fit(int order, const std::vector<double> &x, const st
         }
     }
 
-    const std::vector<double> &sol = linsolve(m, b);
+    const std::vector<mpf_class> &sol = linsolve(m, b);
 
-    std::vector<double> poly;
+    std::vector<mpf_class> poly;
     poly.reserve(order + 1);
     for (int i = 0; i < order + 1; ++i) {
         poly.push_back(sol[i]);
@@ -360,13 +353,16 @@ static std::vector<double> fit(int order, const std::vector<double> &x, const st
     return poly;
 }
 
-static double polyval(const std::vector<double> &poly, double x) {
-    double val = 0;
+static double polyval(const std::vector<mpf_class> &poly, double x) {
+    mpf_class val{0, REQ_PRECISION};
     for (int i = 0; i < poly.size(); ++i) {
-        val += poly[i] * pow(x, i);
+        mpf_class x_pow{x, REQ_PRECISION};
+        mpf_pow_ui(x_pow.get_mpf_t(), x_pow.get_mpf_t(), i);
+
+        val += poly[i] * x_pow;
     }
 
-    return val;
+    return val.get_d();
 }
 
 static std::map<double, double>::iterator
@@ -506,7 +502,7 @@ setup_flight_profile(telemetry_flight_profile &raw, telemetry_flight_profile &fi
         }
     }
 
-    std::vector<std::vector<double>> alt_fit;
+    std::vector<std::vector<mpf_class>> alt_fit;
     std::vector<std::pair<double, double>> force_points;
     for (int l = 0; l < n_events; ++l) {
         force_points.clear();
@@ -548,7 +544,7 @@ setup_flight_profile(telemetry_flight_profile &raw, telemetry_flight_profile &fi
     }
 
     force_points.clear();
-    for (auto it = times[0].rbegin(); it != times[0].rend(); ++it) {
+    for (auto it = times[0].rbegin() + 1; it != times[0].rend(); ++it) {
         if (force_points.size() == 3) {
             break;
         }
@@ -562,7 +558,7 @@ setup_flight_profile(telemetry_flight_profile &raw, telemetry_flight_profile &fi
         force_points.emplace_back(*it.base(), fitted.get_altitude(*it.base()));
     }
 
-    const std::vector<double> &lip_fit = lip(force_points);
+    const std::vector<mpf_class> &lip_fit = lip(force_points);
     // const std::vector<double> &lip_fit = fit(force_points.size() - 1, times[1], legs[1], force_points);
 
     std::cout << std::setprecision(64);
@@ -572,15 +568,6 @@ setup_flight_profile(telemetry_flight_profile &raw, telemetry_flight_profile &fi
     for (const auto &t : times[1]) {
         fitted.put_altitude(t, polyval(lip_fit, t));
     }
-
-    std::ofstream transfer_file{"transfer.csv"};
-    transfer_file.clear();
-    for (const auto &entry : altitude_telem) {
-        transfer_file << raw.get_altitude(entry.first) << ","
-                      << fitted.get_altitude(entry.first)
-                      << "\n";
-    }
-    transfer_file.close();
 }
 
 static liftoff::vector
@@ -604,7 +591,8 @@ adjust_velocity(pidf_controller &pidf, const liftoff::vector &cur_v, double mag_
     return {target_x_velocity, target_y_velocity, 0};
 }
 
-static void adjust_altitude(telemetry_flight_profile &fitted, double break_even, double max_time) {
+static void adjust_altitude(const telemetry_flight_profile &orig, telemetry_flight_profile &fitted, double break_even,
+                            double max_time) {
     double last_t = 0;
     double last_alt = 0;
     double v_integral = 0;
@@ -620,19 +608,19 @@ static void adjust_altitude(telemetry_flight_profile &fitted, double break_even,
         v_integral += v * dt;
         if (t < break_even) {
             fitted.put_altitude(t, v_integral);
+            last_alt = v_integral;
         } else {
-            double target_error = alt - last_alt;
-            double prev_alt = fitted.get_altitude(t - dt);
-            double target_alt = prev_alt + target_error;
+            double target_error = orig.get_altitude(t) - orig.get_altitude(t - dt);
+            double target_alt = last_alt + target_error;
             if (target_alt >= alt) {
                 break;
             }
 
             fitted.put_altitude(t, target_alt);
+            last_alt = target_alt;
         }
 
         last_t = t;
-        last_alt = alt;
     }
 }
 
@@ -648,16 +636,16 @@ void run_telemetry_profile(data_plotter *plotter, velocity_flight_profile &resul
                         stage_2_dry_mass_kg + stage_2_fuel_mass_kg +
                         payload_mass_kg;
 
-    double time_step = 1;
+    double time_step = .5;
     recording_vdb body{total_mass, 4, time_step};
 
     telemetry_flight_profile raw{time_step};
     telemetry_flight_profile fitted{time_step};
     setup_flight_profile(raw, fitted, "./data/data.json");
+    telemetry_flight_profile orig = fitted;
 
     std::map<double, double> &raw_velocities = raw.get_velocities();
-    // double max_time = (--velocities.end())->first;
-    double max_time = 180;
+    double max_time = 400;
 
     double last_corrected_time = 0;
     while (true) {
@@ -677,7 +665,7 @@ void run_telemetry_profile(data_plotter *plotter, velocity_flight_profile &resul
             double v = fitted.get_velocity(t);
             if (v < target_v && last_corrected_time < t) {
                 last_corrected_time = t;
-                adjust_altitude(fitted, t, max_time);
+                adjust_altitude(orig, fitted, t, max_time);
 
                 valid = false;
                 break;
