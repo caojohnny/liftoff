@@ -2,7 +2,7 @@
 
 # Demo
 
-![Actual](https://i.postimg.cc/P5h04bG9/liftoff.png)
+![Actual](https://i.postimg.cc/VNC8zF17/Flight-Data-Replay.png)
 
 # Build
 
