@@ -15,7 +15,10 @@ add_library(root INTERFACE)
 target_include_directories(root
         INTERFACE "${ROOT_INCLUDE_DIRS}")
 target_link_libraries(root
-        INTERFACE "${ROOT_LIBRARIES}")
+        INTERFACE "/usr/local/lib/libCore.so;\
+/usr/local/lib/libHist.so;/usr/local/lib/libGpad.so;\
+/usr/local/lib/libMathCore.so;\
+/usr/local/lib/libMultiProc.so")
 
 root_generate_dictionary(data_plotter_dict
         data_plotter.h

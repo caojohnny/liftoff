@@ -200,6 +200,39 @@ static void adjust_altitude(const telemetry_flight_profile &orig,
 }
 
 void run_telemetry_profile(data_plotter *plotter, velocity_flight_profile &result) {
+    // Plotter setup
+    auto *p_plot = new TGraph();
+    p_plot->SetTitle("Position");
+    p_plot->GetYaxis()->SetTitle("Altitude (meters)");
+    p_plot->GetXaxis()->SetTitle("Downrange Distance (meters)");
+    plotter->add_plot(p_plot);
+
+    auto *v_plot = new TGraph();
+    v_plot->SetTitle("Velocity");
+    v_plot->GetYaxis()->SetTitle("Y Velocity (meters/second)");
+    plotter->add_plot(v_plot);
+
+    auto *a_plot = new TGraph();
+    a_plot->SetTitle("Acceleration");
+    a_plot->GetYaxis()->SetTitle("Y Acceleration (meters/second^2)");
+    plotter->add_plot(a_plot);
+
+    auto *j_plot = new TGraph();
+    j_plot->SetTitle("Jerk");
+    j_plot->GetYaxis()->SetTitle("Y Jerk (meters/second^3)");
+    plotter->add_plot(j_plot);
+
+    for (int i = 1; i <= 4; ++i) {
+        TVirtualPad *pad = plotter->get_canvas()->GetPad(i);
+        pad->SetGridx();
+        pad->SetGridy();
+
+        if (i != 1) {
+            TGraph *plot = plotter->get_plot(i);
+            plot->GetXaxis()->SetTitle("Time (seconds)");
+        }
+    }
+
     // Source: https://www.spaceflightinsider.com/hangar/falcon-9/
     const double stage_1_dry_mass_kg = 25600;
     const double stage_1_fuel_mass_kg = 395700;
@@ -260,36 +293,6 @@ void run_telemetry_profile(data_plotter *plotter, velocity_flight_profile &resul
     const liftoff::vector &a{d_mot[2]};
     const liftoff::vector &j{d_mot[3]};
 
-    auto *p_plot = new TGraph();
-    p_plot->SetTitle("Position");
-    p_plot->GetYaxis()->SetTitle("Altitude (meters)");
-    p_plot->GetXaxis()->SetTitle("Downrange Distance (meters)");
-    auto *v_plot = new TGraph();
-    v_plot->SetTitle("Velocity");
-    v_plot->GetYaxis()->SetTitle("Y Velocity (meters/second)");
-    auto *a_plot = new TGraph();
-    a_plot->SetTitle("Acceleration");
-    a_plot->GetYaxis()->SetTitle("Y Acceleration (meters/second^2)");
-    auto *j_plot = new TGraph();
-    j_plot->SetTitle("Jerk");
-    j_plot->GetYaxis()->SetTitle("Y Jerk (meters/second^3)");
-
-    plotter->add_plot(p_plot);
-    plotter->add_plot(v_plot);
-    plotter->add_plot(a_plot);
-    plotter->add_plot(j_plot);
-
-    for (int i = 1; i <= 4; ++i) {
-        TVirtualPad *pad = plotter->get_canvas()->GetPad(i);
-        pad->SetGridx();
-        pad->SetGridy();
-
-        if (i != 1) {
-            TGraph *plot = plotter->get_plot(i);
-            plot->GetXaxis()->SetTitle("Time (seconds)");
-        }
-    }
-
     std::vector<double> recorded_drag;
     recorded_drag.push_back(0);
 
@@ -332,6 +335,8 @@ void run_telemetry_profile(data_plotter *plotter, velocity_flight_profile &resul
         v_plot->SetPoint(i, cur_time_s, v.magnitude());
         // v_plot->SetPoint(i, cur_time_s, v.get_x() == 0 ? M_PI / 2 : std::atan(v.get_y() / v.get_x()));
         // v_plot->SetPoint(i, cur_time_s, v.get_y());
+        result.put_vx(cur_time_s, v.get_x());
+        result.put_vy(cur_time_s, v.get_y());
 
         a_plot->SetPoint(i, cur_time_s, a.magnitude());
 
@@ -360,21 +365,38 @@ void run_telemetry_profile(data_plotter *plotter, velocity_flight_profile &resul
     plotter->update_plots();
 }
 
-void run_test_rocket(data_plotter *plotter) {
-    telemetry_flight_profile profile{TIME_STEP};
-    telemetry_flight_profile fitted{TIME_STEP};
-    setup_flight_profile(profile, fitted, "./data/data.json");
+void run_test_rocket(data_plotter *plotter, velocity_flight_profile &input) {
+    // Plotter setup
+    auto *p_plot = new TGraph();
+    p_plot->SetTitle("Altitude");
+    p_plot->GetYaxis()->SetTitle("Altitude (meters)");
+    p_plot->GetXaxis()->SetTitle("Downrange Distance (meters)");
+    plotter->add_plot(p_plot);
 
-    // https://www.youtube.com/watch?v=sbXgZg9JmkI
-    double meco_time_s = 155;
+    auto *v_plot = new TGraph();
+    v_plot->SetTitle("Velocity");
+    v_plot->GetYaxis()->SetTitle("Y Velocity (meters/second)");
+    plotter->add_plot(v_plot);
 
-    pidf_controller pidf{TIME_STEP, 0, 0, 0, 0};
+    auto *a_plot = new TGraph();
+    a_plot->SetTitle("Acceleration");
+    a_plot->GetYaxis()->SetTitle("Y Accleration (meters/second^2)");
+    plotter->add_plot(a_plot);
 
-    double merlin_p_e = liftoff::calc_pressure_earth(0) * 1000;
-    std::vector<engine> engines;
-    for (int i = 0; i < 9; ++i) {
-        engine e{MERLIN_MAX_THRUST, MERLIN_ISP};
-        engines.push_back(e);
+    auto *j_plot = new TGraph();
+    j_plot->SetTitle("Atmospheric Drag");
+    j_plot->GetYaxis()->SetTitle("Drag Force (Newtons)");
+    plotter->add_plot(j_plot);
+
+    for (int i = 1; i <= 4; ++i) {
+        TVirtualPad *pad = plotter->get_canvas()->GetPad(i);
+        pad->SetGridx();
+        pad->SetGridy();
+
+        if (i != 1) {
+            TGraph *plot = plotter->get_plot(i);
+            plot->GetXaxis()->SetTitle("Time (seconds)");
+        }
     }
 
     // These numbers come from up there ^^
@@ -383,6 +405,13 @@ void run_test_rocket(data_plotter *plotter) {
     const double stage_2_dry_mass_kg = 3900;
     const double stage_2_fuel_mass_kg = 92670;
     const double payload_mass_kg = 6800;
+
+    double merlin_p_e = liftoff::calc_pressure_earth(0) * 1000;
+    std::vector<engine> engines;
+    for (int i = 0; i < 9; ++i) {
+        engine e{MERLIN_MAX_THRUST, MERLIN_ISP};
+        engines.push_back(e);
+    }
 
     rocket body{stage_1_dry_mass_kg + stage_2_dry_mass_kg + payload_mass_kg + stage_2_fuel_mass_kg,
                 stage_1_fuel_mass_kg,
@@ -398,36 +427,6 @@ void run_test_rocket(data_plotter *plotter) {
     const liftoff::vector &a{d_mot[2]};
     const liftoff::vector &j{d_mot[3]};
 
-    auto *p_plot = new TGraph();
-    p_plot->SetTitle("Altitude");
-    p_plot->GetYaxis()->SetTitle("Altitude (meters)");
-    p_plot->GetXaxis()->SetTitle("Downrange Distance (meters)");
-    auto *v_plot = new TGraph();
-    v_plot->SetTitle("Velocity");
-    v_plot->GetYaxis()->SetTitle("Y Velocity (meters/second)");
-    auto *a_plot = new TGraph();
-    a_plot->SetTitle("Acceleration");
-    a_plot->GetYaxis()->SetTitle("Y Accleration (meters/second^2)");
-    auto *j_plot = new TGraph();
-    j_plot->SetTitle("Atmospheric Drag");
-    j_plot->GetYaxis()->SetTitle("Drag Force (Newtons)");
-
-    plotter->add_plot(p_plot);
-    plotter->add_plot(v_plot);
-    plotter->add_plot(a_plot);
-    plotter->add_plot(j_plot);
-
-    for (int i = 1; i <= 4; ++i) {
-        TVirtualPad *pad = plotter->get_canvas()->GetPad(i);
-        pad->SetGridx();
-        pad->SetGridy();
-
-        if (i != 1) {
-            TGraph *plot = plotter->get_plot(i);
-            plot->GetXaxis()->SetTitle("Time (seconds)");
-        }
-    }
-
     // Initial state
     liftoff::vector w{0, -ACCEL_G * body.get_mass(), 0};
     liftoff::vector n{0, ACCEL_G * body.get_mass(), 0};
@@ -435,10 +434,8 @@ void run_test_rocket(data_plotter *plotter) {
     forces.push_back(n);
     forces.resize(4);
 
-    liftoff::vector cached_n = n;
-
     int pause_ticks = 0;
-    long double sim_duration_ticks = to_ticks(200); // to_ticks(15, 0);
+    long double sim_duration_ticks = to_ticks(300);
     for (int i = 1; i < sim_duration_ticks; ++i) {
         double cur_time_s = i * TIME_STEP;
 
@@ -446,8 +443,6 @@ void run_test_rocket(data_plotter *plotter) {
         body.pre_compute();
 
         // Normal force computation
-        auto find_n = std::find(forces.begin(), forces.end(), cached_n);
-
         liftoff::vector new_n;
         if (p.get_y() < 0) {
             for (const auto &force : forces) {
@@ -462,59 +457,61 @@ void run_test_rocket(data_plotter *plotter) {
             }
         }
 
-        *find_n = cached_n = new_n;
-
         // Recompute weight vector
         double cur_mass = body.get_mass();
         liftoff::vector cur_weight = {0, -ACCEL_G * cur_mass, 0};
-        forces.at(0) = cur_weight;
+        forces[0] = cur_weight;
 
         // Recompute drag for new velocity
         double v_mag = v.magnitude();
         double drag_sign = -((v.get_y() > 0) - (v.get_y() < 0));
         double drag_y = liftoff::calc_drag_earth(F9_CD, p.get_y(), v_mag, F9_A);
         liftoff::vector cur_drag{0, drag_sign * drag_y, 0};
-        forces.at(2) = cur_drag;
+        forces[2] = cur_drag;
 
         // Recompute thrust
         std::vector<engine> &cur_engines{body.get_engines()};
 
         double prop_rem = body.get_prop_mass();
         if (prop_rem <= 0) {
-            std::cout << "No propellant (tick=" << i << ")" << std::endl;
+            std::cout << cur_time_s << ": No propellant" << std::endl;
+            continue;
         }
 
-        pidf.set_last_state(p.get_y());
+        double vx = input.get_vx(cur_time_s);
+        double vy = input.get_vy(cur_time_s);
+        double dvx;
+        double dvy;
+        if (!std::isnan(vx) && !std::isnan(vy)) {
+            dvx = vx - v.get_x();
+            dvy = vy - v.get_y();
 
-        double target_v = profile.get_velocity();
-        double target_alt = profile.get_altitude();
-
-        if (cur_time_s >= meco_time_s) {
-            for (auto &e : cur_engines) {
-                e.set_throttle(0);
-            }
-        } else if (!std::isnan(target_v) && !std::isnan(target_alt)) {
-            pidf.set_setpoint(target_alt);
-
-            double accel = target_v - v.magnitude();
+            double accel = std::sqrt(dvx * dvx + dvy * dvy);
             double f = body.get_mass() * accel;
             double f_pe = f / engines.size();
+
+            double throttle = f / (engines.size() * MERLIN_MAX_THRUST);
+            std::cout << cur_time_s << ", " << vx << ", " << v.get_x() << ", " << dvx << ", " << vy << ", " << v.get_y() << ", " << dvy << ", " << accel << ", " << body.get_mass() << ", " << f << ", " << throttle << std::endl;
 
             for (auto &e : cur_engines) {
                 e.set_throttle(f_pe / e.get_max_thrust());
             }
         }
 
-        liftoff::vector cur_thrust;
+        if (cur_time_s == 155) {
+            body.set_mass(body.get_mass() - stage_1_dry_mass_kg - body.get_prop_mass());
+            std::cout << "MECO: Remaining propellant = " << body.get_prop_mass() << "kg" << std::endl;
+        }
+
+        if (cur_time_s > 155) {
+            for (auto &e : cur_engines) {
+                e.set_throttle(0);
+            }
+        }
+
+        double thrust_net = 0;
         for (const auto &e : cur_engines) {
-            double throttle_pct = e.get_throttle();
-            // Pretty egregious estimate, eek
-            // https://www.grc.nasa.gov/www/k-12/airplane/rockth.html
-            double free_stream_pressure = liftoff::calc_pressure_earth(p.get_y()) * 1000;
-            // cba to figure out how the engine throttle actually affects engine performance here
-            double thrust_adjustment = throttle_pct * (merlin_p_e - free_stream_pressure) * MERLIN_A;
-            double engine_thrust = e.get_thrust() + thrust_adjustment;
-            cur_thrust.add({0, engine_thrust, 0});
+            thrust_net += e.get_thrust();
 
             double rate = e.get_prop_flow_rate();
             double mass_flow = rate / ACCEL_G;
@@ -522,16 +519,15 @@ void run_test_rocket(data_plotter *plotter) {
             body.drain_propellant(total_prop_mass);
         }
 
-        if (!std::isnan(target_v)) {
-            const liftoff::vector &adjusted_v = adjust_velocity(pidf, v, target_v);
-            double thrust_x = adjusted_v.get_x() * cur_thrust.get_y() / target_v;
-            double thrust_y = adjusted_v.get_y() * cur_thrust.get_y() / target_v;
+        liftoff::vector cur_thrust{0, thrust_net, 0};
+        if (!std::isnan(vx) && !std::isnan(vy)) {
+            double target_v = std::sqrt(vx * vx + vy * vy);
+            double i_vec = signum(dvx) * vx / target_v;
+            double j_vec = signum(dvy) * vy / target_v;
 
-            cur_thrust.set({thrust_x, thrust_y, 0});
+            cur_thrust.set({i_vec * thrust_net, j_vec * thrust_net, 0});
         }
-        forces.at(3) = cur_thrust;
-
-        profile.step();
+        forces[3] = cur_thrust;
 
         body.compute_forces();
         body.compute_motion();
@@ -558,10 +554,11 @@ void run_test_rocket(data_plotter *plotter) {
     }
 
     plotter->update_plots();
-    std::cout << "Remaining propellant: " << body.get_prop_mass() << "kg" << std::endl;
 }
 
 int main() {
+    std::cout << std::setprecision(16);
+
     int fake_argc = 0;
     char *fake_argv[1];
     TApplication app("SpaceX JCSAT-18/KACIFC1 Flight Sim", &fake_argc, fake_argv);
@@ -570,10 +567,10 @@ int main() {
     auto *telemetry_plotter = new data_plotter(app, "Flight Data Replay", 2, 2);
     run_telemetry_profile(telemetry_plotter, result);
 
-    /* auto *sim_plotter = new data_plotter(app, "Flight Simulation", 2, 2);
-    run_test_rocket(sim_plotter); */
+    auto *sim_plotter = new data_plotter(app, "Flight Simulation", 2, 2);
+    run_test_rocket(sim_plotter, result);
 
-    while (telemetry_plotter->is_valid() /* + sim_plotter->is_valid() */ > 0) {
+    while (telemetry_plotter->is_valid() + sim_plotter->is_valid() > 0) {
         plotter_handle_gui(true);
     }
 
