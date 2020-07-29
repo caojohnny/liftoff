@@ -435,7 +435,7 @@ void run_test_rocket(data_plotter *plotter, velocity_flight_profile &input) {
     forces.resize(4);
 
     int pause_ticks = 0;
-    long double sim_duration_ticks = to_ticks(300);
+    long double sim_duration_ticks = to_ticks(500);
     for (int i = 1; i < sim_duration_ticks; ++i) {
         double cur_time_s = i * TIME_STEP;
 
@@ -445,7 +445,12 @@ void run_test_rocket(data_plotter *plotter, velocity_flight_profile &input) {
         // Normal force computation
         liftoff::vector new_n;
         if (p.get_y() < 0) {
-            for (const auto &force : forces) {
+            for (int k = 0; k < forces.size(); ++k) {
+                if (k == 1) {
+                    continue;
+                }
+
+                liftoff::vector &force = forces[k];
                 if (force.get_y() < 0) {
                     new_n.add({0, -force.get_y(), 0});
                 }
@@ -456,6 +461,7 @@ void run_test_rocket(data_plotter *plotter, velocity_flight_profile &input) {
                 body.set_velocity({});
             }
         }
+        forces[1] = new_n;
 
         // Recompute weight vector
         double cur_mass = body.get_mass();
@@ -464,9 +470,11 @@ void run_test_rocket(data_plotter *plotter, velocity_flight_profile &input) {
 
         // Recompute drag for new velocity
         double v_mag = v.magnitude();
-        double drag_sign = -((v.get_y() > 0) - (v.get_y() < 0));
-        double drag_y = liftoff::calc_drag_earth(F9_CD, p.get_y(), v_mag, F9_A);
-        liftoff::vector cur_drag{0, drag_sign * drag_y, 0};
+        liftoff::vector cur_drag;
+        if (v_mag != 0) {
+            double drag = liftoff::calc_drag_earth(F9_CD, p.get_y(), v_mag, F9_A);
+            cur_drag = {-v.get_x() * drag / v_mag, -v.get_y() * drag / v_mag, 0};
+        }
         forces[2] = cur_drag;
 
         // Recompute thrust
@@ -482,11 +490,12 @@ void run_test_rocket(data_plotter *plotter, velocity_flight_profile &input) {
         double vy = input.get_vy(cur_time_s);
         double dvx;
         double dvy;
+        double accel;
         if (!std::isnan(vx) && !std::isnan(vy)) {
             dvx = vx - v.get_x();
             dvy = vy - v.get_y();
 
-            double accel = std::sqrt(dvx * dvx + dvy * dvy);
+            accel = std::sqrt(dvx * dvx + dvy * dvy);
             double f = body.get_mass() * accel;
             double f_pe = f / engines.size();
 
@@ -499,8 +508,10 @@ void run_test_rocket(data_plotter *plotter, velocity_flight_profile &input) {
         }
 
         if (cur_time_s == 155) {
-            body.set_mass(body.get_mass() - stage_1_dry_mass_kg - body.get_prop_mass());
-            std::cout << "MECO: Remaining propellant = " << body.get_prop_mass() << "kg" << std::endl;
+            std::cout << "MECO: Remaining propellant = " << body.get_prop_mass() << " kg" << std::endl;
+
+            // Second stage separation
+            body.set_mass(body.get_mass() - stage_2_dry_mass_kg - stage_2_fuel_mass_kg - payload_mass_kg);
         }
 
         if (cur_time_s > 155) {
@@ -521,11 +532,10 @@ void run_test_rocket(data_plotter *plotter, velocity_flight_profile &input) {
 
         liftoff::vector cur_thrust{0, thrust_net, 0};
         if (!std::isnan(vx) && !std::isnan(vy)) {
-            double target_v = std::sqrt(vx * vx + vy * vy);
-            double i_vec = signum(dvx) * vx / target_v;
-            double j_vec = signum(dvy) * vy / target_v;
+            double uax = dvx / accel;
+            double uay = dvy / accel;
 
-            cur_thrust.set({i_vec * thrust_net, j_vec * thrust_net, 0});
+            cur_thrust.set({uax * thrust_net, uay * thrust_net, 0});
         }
         forces[3] = cur_thrust;
 

@@ -18,6 +18,10 @@ void rocket::drain_propellant(double drain_mass) {
     prop_mass -= drain_mass;
 }
 
+void rocket::set_prop_mass(double new_prop_mass) {
+    prop_mass = new_prop_mass;
+}
+
 std::vector<engine> &rocket::get_engines() {
     return engines;
 }

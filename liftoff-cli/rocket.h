@@ -19,6 +19,8 @@ public:
 
     double get_prop_mass() const;
 
+    void set_prop_mass(double new_prop_mass);
+
     void drain_propellant(double drain_mass);
 
     std::vector<engine> &get_engines();
