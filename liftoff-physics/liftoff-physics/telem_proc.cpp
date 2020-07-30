@@ -52,8 +52,7 @@ void liftoff::force(std::vector<std::pair<double, double>> &out,
                     int count) {
     int added = 0;
     if (count >= 0) {
-        for (auto it = times.begin(); it != times.end(); ++it) {
-            double t = *it.base();
+        for (double t : times) {
             double value = in.find(t)->second;
             out.emplace_back(t, value);
 
@@ -63,7 +62,7 @@ void liftoff::force(std::vector<std::pair<double, double>> &out,
         }
     } else {
         for (auto it = times.rbegin(); it != times.rend(); ++it) {
-            double t = *it.base();
+            double t = *it;
             double value = in.find(t)->second;
             out.emplace_back(t, value);
 

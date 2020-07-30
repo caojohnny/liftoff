@@ -18,8 +18,10 @@ add_library(liftoff-physics
         liftoff-physics/velocity_driven_body.cpp liftoff-physics/velocity_driven_body.h
         liftoff-physics/linalg.cpp liftoff-physics/linalg.h
         liftoff-physics/polynomial.cpp liftoff-physics/polynomial.h
-        liftoff-physics/matrix.cpp liftoff-physics/matrix.h liftoff-physics/telem_proc.cpp liftoff-physics/telem_proc.h)
+        liftoff-physics/matrix.cpp liftoff-physics/matrix.h
+        liftoff-physics/telem_proc.cpp liftoff-physics/telem_proc.h)
 target_include_directories(liftoff-physics
+        PRIVATE "${GMP_INCLUDES}"
         PUBLIC "$<BUILD_INTERFACE:${MODULE_DIR}>"
         PUBLIC "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
 target_link_libraries(liftoff-physics
