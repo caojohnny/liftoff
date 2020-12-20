@@ -28,4 +28,5 @@ target_link_libraries(liftoff-cli
         PRIVATE json
         PRIVATE ${MATHGL2_LIBRARIES}
         PRIVATE ${MATHGL2_FLTK_LIBRARIES}
-        PRIVATE ${FLTK_LIBRARIES})
+        PRIVATE ${FLTK_LIBRARIES}
+        PRIVATE pthread)
