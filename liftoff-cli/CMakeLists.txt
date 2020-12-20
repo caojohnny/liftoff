@@ -5,30 +5,9 @@ set(MODULE_DIR "${CMAKE_CURRENT_LIST_DIR}")
 get_filename_component(PARENT_DIR "${MODULE_DIR}" DIRECTORY)
 include("${PARENT_DIR}/cmake/DownloadJson.cmake")
 
-find_package(ROOT REQUIRED)
-include(${ROOT_USE_FILE})
-
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PARENT_DIR}/cmake/")
-find_package(GMP REQUIRED)
-
-add_library(root INTERFACE)
-target_include_directories(root
-        INTERFACE "${ROOT_INCLUDE_DIRS}")
-target_link_libraries(root
-        INTERFACE "/usr/local/lib/libCore.so;\
-/usr/local/lib/libHist.so;/usr/local/lib/libGpad.so;\
-/usr/local/lib/libMathCore.so;\
-/usr/local/lib/libMultiProc.so")
-
-root_generate_dictionary(data_plotter_dict
-        data_plotter.h
-        LINKDEF data_plotter_link.h)
-
-add_library(data_plotter SHARED data_plotter.cpp data_plotter_dict.cxx)
-target_include_directories(data_plotter
-        PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(data_plotter
-        PUBLIC root)
+find_package(MathGL2 REQUIRED FLTK)
+find_package(FLTK)
 
 add_executable(liftoff-cli
         main.cpp
@@ -38,8 +17,15 @@ add_executable(liftoff-cli
         rocket.cpp rocket.h
         recording_vdb.cpp recording_vdb.h
         pidf_controller.cpp pidf_controller.h
-        velocity_flight_profile.cpp velocity_flight_profile.h)
+        velocity_flight_profile.cpp velocity_flight_profile.h
+        c11_binary_latch.cpp c11_binary_latch.h)
+target_include_directories(liftoff-cli
+        PRIVATE ${MATHGL2_INCLUDE_DIRS}
+        PRIVATE ${FLTK_INCLUDE_DIRS}
+        PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(liftoff-cli
         PRIVATE liftoff-physics
-        PRIVATE data_plotter
-        PRIVATE json)
+        PRIVATE json
+        PRIVATE ${MATHGL2_LIBRARIES}
+        PRIVATE ${MATHGL2_FLTK_LIBRARIES}
+        PRIVATE ${FLTK_LIBRARIES})

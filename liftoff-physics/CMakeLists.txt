@@ -25,7 +25,6 @@ target_include_directories(liftoff-physics
         PUBLIC "$<BUILD_INTERFACE:${MODULE_DIR}>"
         PUBLIC "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
 target_link_libraries(liftoff-physics
-        PRIVATE gmpxx
-        PRIVATE gmp)
+        PRIVATE ${GMP_LIBRARIES})
 
 include("${PARENT_DIR}/cmake/ExportLibrary.cmake")

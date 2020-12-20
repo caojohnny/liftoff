@@ -1,22 +1,25 @@
-#include <liftoff-physics/body.h>
-#include <iostream>
 #include <cmath>
-#include "liftoff-physics/drag.h"
-#include "telemetry_flight_profile.h"
-#include "thrust.h"
-#include "rocket.h"
-#include "recording_vdb.h"
-#include "data_plotter.h"
-#include "pidf_controller.h"
-#include "velocity_flight_profile.h"
-#include <TAxis.h>
-#include <TSystem.h>
-#include <TROOT.h>
-#include <nlohmann/json.hpp>
 #include <fstream>
-#include <gmpxx.h>
+#include <iostream>
+#include <thread>
+
+#include <FL/Fl.H>
+#include <mgl2/mgl.h>
+#include <mgl2/fltk.h>
+#include <nlohmann/json.hpp>
+
+#include <liftoff-physics/body.h>
+#include <liftoff-physics/drag.h>
+#include <liftoff-physics/linalg.h>
 #include <liftoff-physics/telem_proc.h>
-#include "liftoff-physics/linalg.h"
+
+#include "c11_binary_latch.h"
+#include "pidf_controller.h"
+#include "recording_vdb.h"
+#include "rocket.h"
+#include "thrust.h"
+#include "telemetry_flight_profile.h"
+#include "velocity_flight_profile.h"
 
 static const double TICKS_PER_SEC = 1;
 static const double TIME_STEP = 1.0 / TICKS_PER_SEC;
@@ -52,6 +55,11 @@ static double km_to_m(double km) {
 
 static int signum(double x) {
     return (x > 0) - (x < 0);
+}
+
+static void update_wnd(void *data) {
+    auto *gr = static_cast<mglWnd *>(data);
+    gr->Update();
 }
 
 static void parse_telem(telemetry_flight_profile &raw, const std::string &path) {
@@ -161,7 +169,7 @@ static liftoff::vector adjust_velocity(pidf_controller &pidf, const liftoff::vec
             target_y_velocity = signum(target_y_velocity) * mag_v;
         }
 
-        target_x_velocity = std::sqrt(mag_v * mag_v - target_y_velocity * target_y_velocity);
+        target_x_velocity = std::sqrt((long double) (mag_v * mag_v - target_y_velocity * target_y_velocity));
     }
 
     return {target_x_velocity, target_y_velocity, 0};
@@ -199,392 +207,462 @@ static void adjust_altitude(const telemetry_flight_profile &orig,
     }
 }
 
-void run_telemetry_profile(data_plotter *plotter, velocity_flight_profile &result) {
-    // Plotter setup
-    auto *p_plot = new TGraph();
-    p_plot->SetTitle("Position");
-    p_plot->GetYaxis()->SetTitle("Altitude (meters)");
-    p_plot->GetXaxis()->SetTitle("Downrange Distance (meters)");
-    plotter->add_plot(p_plot);
+class run_telemetry_profile : public mglDraw {
+private:
+    velocity_flight_profile &profile;
+    c11_binary_latch latch;
 
-    auto *v_plot = new TGraph();
-    v_plot->SetTitle("Velocity");
-    v_plot->GetYaxis()->SetTitle("Y Velocity (meters/second)");
-    plotter->add_plot(v_plot);
-
-    auto *a_plot = new TGraph();
-    a_plot->SetTitle("Acceleration");
-    a_plot->GetYaxis()->SetTitle("Y Acceleration (meters/second^2)");
-    plotter->add_plot(a_plot);
-
-    auto *j_plot = new TGraph();
-    j_plot->SetTitle("Jerk");
-    j_plot->GetYaxis()->SetTitle("Y Jerk (meters/second^3)");
-    plotter->add_plot(j_plot);
-
-    for (int i = 1; i <= 4; ++i) {
-        TVirtualPad *pad = plotter->get_canvas()->GetPad(i);
-        pad->SetGridx();
-        pad->SetGridy();
-
-        if (i != 1) {
-            TGraph *plot = plotter->get_plot(i);
-            plot->GetXaxis()->SetTitle("Time (seconds)");
-        }
+    mglData plot_data;
+    mglWnd *wnd_inst{nullptr};
+public:
+    explicit run_telemetry_profile(velocity_flight_profile &profile) :
+            profile(profile) {
     }
 
-    // Source: https://www.spaceflightinsider.com/hangar/falcon-9/
-    const double stage_1_dry_mass_kg = 25600;
-    const double stage_1_fuel_mass_kg = 395700;
-    const double stage_2_dry_mass_kg = 3900;
-    const double stage_2_fuel_mass_kg = 92670;
-    const double payload_mass_kg = 6800;
+    const velocity_flight_profile &get_profile() const {
+        return profile;
+    }
 
-    double total_mass = stage_1_dry_mass_kg + stage_1_fuel_mass_kg +
-                        stage_2_dry_mass_kg + stage_2_fuel_mass_kg +
-                        payload_mass_kg;
+    c11_binary_latch &get_latch() {
+        return latch;
+    }
 
-    double time_step = 1;
-    recording_vdb vdb{total_mass, 4, time_step};
-    liftoff::velocity_driven_body &body = vdb;
+    void set_window(mglWnd *wnd) {
+        wnd_inst = wnd;
+    }
 
-    telemetry_flight_profile raw{time_step};
-    telemetry_flight_profile fitted{time_step};
-    setup_flight_profile(raw, fitted, "./data/data.json");
-    const telemetry_flight_profile orig = fitted;
+    int Draw(mglGraph *gr) override {
+        gr->Clf();
 
-    double max_time = 500;
+        gr->SubPlot(2, 2, 0);
+        gr->Title("Position");
+        gr->Label('x', "Downrange Distance (m)");
+        gr->Label('y', "Altitude (m)");
+        gr->Grid();
+        gr->Box();
+        gr->SetRanges(plot_data.SubData(-1, 0, 0), plot_data.SubData(-1, 0, 1));
+        gr->Axis("xy");
+        gr->Plot(plot_data.SubData(-1, 0, 0), plot_data.SubData(-1, 0, 1));
 
-    double last_corrected_time = 0;
-    while (true) {
-        bool valid = true;
-        double last_t = 0;
-        double last_alt = 0;
-        for (int i = 0; i < max_time / time_step; ++i) {
-            double t = i * time_step;
-            double alt = fitted.get_altitude(t);
+        gr->SubPlot(2, 2, 1);
+        gr->Title("Velocity");
+        gr->Label('x', "Time (s)");
+        gr->Label('y', "Y Velocity (m/s)");
+        gr->Grid();
+        gr->Box();
+        gr->SetRanges(plot_data.SubData(-1, 1, 0), plot_data.SubData(-1, 1, 1));
+        gr->Axis("xy");
+        gr->Plot(plot_data.SubData(-1, 1, 0), plot_data.SubData(-1, 1, 1));
 
-            double dt = t - last_t;
-            double target_error = alt - last_alt;
-            double target_v = target_error / dt;
-            double v = fitted.get_velocity(t);
-            if (v < target_v && last_corrected_time < t) {
-                last_corrected_time = t;
-                adjust_altitude(orig, fitted, t, max_time);
+        gr->SubPlot(2, 2, 2);
+        gr->Title("Acceleration");
+        gr->Label('x', "Time (s)");
+        gr->Label('y', "Y Acceleration (m/s^2)");
+        gr->Grid();
+        gr->Box();
+        gr->SetRanges(plot_data.SubData(-1, 2, 0), plot_data.SubData(-1, 2, 1));
+        gr->Axis("xy");
+        gr->Plot(plot_data.SubData(-1, 2, 0), plot_data.SubData(-1, 2, 1));
 
-                valid = false;
+        gr->SubPlot(2, 2, 3);
+        gr->Title("Jerk");
+        gr->Label('x', "Time (s)");
+        gr->Label('y', "Y Jerk (m/s^3)");
+        gr->Grid();
+        gr->Box();
+        gr->SetRanges(plot_data.SubData(-1, 3, 0), plot_data.SubData(-1, 3, 1));
+        gr->Axis("xy");
+        gr->Plot(plot_data.SubData(-1, 3, 0), plot_data.SubData(-1, 3, 1));
+
+        return 0;
+    }
+
+    void Calc() override {
+        // Source: https://www.spaceflightinsider.com/hangar/falcon-9/
+        const double stage_1_dry_mass_kg = 25600;
+        const double stage_1_fuel_mass_kg = 395700;
+        const double stage_2_dry_mass_kg = 3900;
+        const double stage_2_fuel_mass_kg = 92670;
+        const double payload_mass_kg = 6800;
+
+        double total_mass = stage_1_dry_mass_kg + stage_1_fuel_mass_kg +
+                            stage_2_dry_mass_kg + stage_2_fuel_mass_kg +
+                            payload_mass_kg;
+
+        double time_step = 1;
+        recording_vdb vdb{total_mass, 4, time_step};
+        liftoff::velocity_driven_body &body = vdb;
+
+        telemetry_flight_profile raw{time_step};
+        telemetry_flight_profile fitted{time_step};
+        setup_flight_profile(raw, fitted, "./data/data.json");
+        const telemetry_flight_profile orig = fitted;
+
+        double max_time = 500;
+
+        double last_corrected_time = 0;
+        int total_steps = static_cast<int>(static_cast<double>(max_time) / time_step);
+        while (true) {
+            bool valid = true;
+            double last_t = 0;
+            double last_alt = 0;
+            for (int i = 0; i < total_steps; ++i) {
+                double t = i * time_step;
+                double alt = fitted.get_altitude(t);
+
+                double dt = t - last_t;
+                double target_error = alt - last_alt;
+                double target_v = target_error / dt;
+                double v = fitted.get_velocity(t);
+                if (v < target_v && last_corrected_time < t) {
+                    last_corrected_time = t;
+                    adjust_altitude(orig, fitted, t, max_time);
+
+                    valid = false;
+                    break;
+                }
+
+                last_t = t;
+                last_alt = alt;
+            }
+
+            if (valid) {
                 break;
             }
-
-            last_t = t;
-            last_alt = alt;
         }
 
-        if (valid) {
-            break;
+        const std::vector<liftoff::vector> &d_mot{body.get_d_mot()};
+
+        // Telemetry
+        const liftoff::vector &p{d_mot[0]};
+        const liftoff::vector &v{d_mot[1]};
+        const liftoff::vector &a{d_mot[2]};
+        const liftoff::vector &j{d_mot[3]};
+
+        std::vector<double> recorded_drag;
+        recorded_drag.push_back(0);
+
+        pidf_controller pidf{time_step, 0, 0, 0, 0};
+
+        plot_data.Create(1, 4, 2);
+        for (int i = 0; i < total_steps; ++i) {
+            double cur_time_s = i * time_step;
+
+            // Computation
+            body.pre_compute();
+
+            pidf.set_last_state(p.get_y());
+
+            double telem_velocity = fitted.get_velocity(cur_time_s);
+            double telem_alt = fitted.get_altitude(cur_time_s);
+            if (!std::isnan(telem_velocity) && !std::isnan(telem_alt)) {
+                pidf.set_setpoint(telem_alt);
+
+                const liftoff::vector &new_velocity = adjust_velocity(pidf, v, telem_velocity);
+                body.set_velocity(new_velocity);
+            }
+
+            double drag_x = liftoff::calc_drag_earth(F9_CD, p.get_y(), v.get_x(), F9_A);
+            double drag_y = liftoff::calc_drag_earth(F9_CD, p.get_y(), v.get_y(), F9_A);
+            liftoff::vector cur_drag{drag_x, drag_y, 0};
+            recorded_drag.push_back(cur_drag.get_y());
+
+            body.compute_motion();
+            body.post_compute();
+
+            if (i != 0) {
+                plot_data.Insert('x', i);
+            }
+
+            plot_data.Put(p.get_x(), i, 0, 0);
+            plot_data.Put(p.get_y(), i, 0, 1);
+
+            plot_data.Put(cur_time_s, i, 1, 0);
+            plot_data.Put(v.magnitude(), i, 1, 1);
+
+            plot_data.Put(cur_time_s, i, 2, 0);
+            plot_data.Put(a.magnitude(), i, 2, 1);
+
+            plot_data.Put(cur_time_s, i, 3, 0);
+            plot_data.Put(j.magnitude(), i, 3, 1);
+
+            Check();
+
+            Fl::awake(update_wnd, wnd_inst);
+
+            profile.put_vx(cur_time_s, v.get_x());
+            profile.put_vy(cur_time_s, v.get_y());
+            /* std::cout << cur_time_s << ", " << v.magnitude() << ", " << p.get_y() << ", " << pidf.compute_error()
+                      << ", "
+                      << p.get_x() << ", " << v.get_x() << ", " << v.get_y() << ", " << a.get_x() << ", " << a.get_y()
+                      << ", " << a.magnitude() << ", " << j.get_x() << ", " << j.get_y() << ", " << j.magnitude()
+                      << ", "
+                      << pidf.get_setpoint() << ", " << pidf.get_last_state() << ", " << raw.get_altitude(cur_time_s)
+                      << ", " << raw.get_altitude(cur_time_s) - p.get_y() << std::endl; */
         }
+
+        latch.release();
+    }
+};
+
+class run_test_rocket : public mglDraw {
+private:
+    run_telemetry_profile &rtp;
+
+    mglWnd *wnd_inst{nullptr};
+    mglData plot_data;
+public:
+    explicit run_test_rocket(run_telemetry_profile &rtp) :
+            rtp(rtp) {
     }
 
-    const std::vector<liftoff::vector> &d_mot{body.get_d_mot()};
-
-    // Telemetry
-    const liftoff::vector &p{d_mot[0]};
-    const liftoff::vector &v{d_mot[1]};
-    const liftoff::vector &a{d_mot[2]};
-    const liftoff::vector &j{d_mot[3]};
-
-    std::vector<double> recorded_drag;
-    recorded_drag.push_back(0);
-
-    pidf_controller pidf{time_step, 0, 0, 0, 0};
-
-    int pause_ticks = 0;
-    for (int i = 0; i < max_time / time_step; ++i) {
-        double cur_time_s = i * time_step;
-
-        // Computation
-        body.pre_compute();
-
-        pidf.set_last_state(p.get_y());
-
-        double telem_velocity = fitted.get_velocity(cur_time_s);
-        double telem_alt = fitted.get_altitude(cur_time_s);
-        if (!std::isnan(telem_velocity) && !std::isnan(telem_alt)) {
-            pidf.set_setpoint(telem_alt);
-
-            const liftoff::vector &new_velocity = adjust_velocity(pidf, v, telem_velocity);
-            body.set_velocity(new_velocity);
-        }
-
-        double drag_x = liftoff::calc_drag_earth(F9_CD, p.get_y(), v.get_x(), F9_A);
-        double drag_y = liftoff::calc_drag_earth(F9_CD, p.get_y(), v.get_y(), F9_A);
-        liftoff::vector cur_drag{drag_x, drag_y, 0};
-        recorded_drag.push_back(cur_drag.get_y());
-
-        body.compute_motion();
-        body.post_compute();
-
-        if (!plotter->is_valid()) {
-            return;
-        }
-
-        // Plotting
-        p_plot->SetPoint(i, p.get_x(), p.get_y());
-        // p_plot->SetPoint(i, cur_time_s, v.get_x());
-
-        v_plot->SetPoint(i, cur_time_s, v.magnitude());
-        // v_plot->SetPoint(i, cur_time_s, v.get_x() == 0 ? M_PI / 2 : std::atan(v.get_y() / v.get_x()));
-        // v_plot->SetPoint(i, cur_time_s, v.get_y());
-        result.put_vx(cur_time_s, v.get_x());
-        result.put_vy(cur_time_s, v.get_y());
-
-        a_plot->SetPoint(i, cur_time_s, a.magnitude());
-
-        j_plot->SetPoint(i, cur_time_s, j.magnitude());
-        // j_plot->SetPoint(i, cur_time_s, raw.get_altitude(cur_time_s) - p.get_y());
-
-        /* std::cout << cur_time_s << ", " << v.magnitude() << ", " << p.get_y() << ", " << pidf.compute_error()
-                  << ", "
-                  << p.get_x() << ", " << v.get_x() << ", " << v.get_y() << ", " << a.get_x() << ", " << a.get_y()
-                  << ", " << a.magnitude() << ", " << j.get_x() << ", " << j.get_y() << ", " << j.magnitude()
-                  << ", "
-                  << pidf.get_setpoint() << ", " << pidf.get_last_state() << ", " << raw.get_altitude(cur_time_s)
-                  << ", " << raw.get_altitude(cur_time_s) - p.get_y() << std::endl; */
-
-        plotter_handle_gui(false);
-
-        pause_ticks++;
-        /* if (pause_ticks >= 10) {
-            plotter->update_plots();
-            plotter->await(1000000);
-
-            pause_ticks = 0;
-        } */
+    void set_window(mglWnd *wnd) {
+        wnd_inst = wnd;
     }
 
-    plotter->update_plots();
-}
+    int Draw(mglGraph *gr) override {
+        gr->Clf();
 
-void run_test_rocket(data_plotter *plotter, velocity_flight_profile &input) {
-    // Plotter setup
-    auto *p_plot = new TGraph();
-    p_plot->SetTitle("Altitude");
-    p_plot->GetYaxis()->SetTitle("Altitude (meters)");
-    p_plot->GetXaxis()->SetTitle("Downrange Distance (meters)");
-    plotter->add_plot(p_plot);
+        gr->SubPlot(2, 2, 0);
+        gr->Title("Position");
+        gr->Label('x', "Downrange Distance (m)");
+        gr->Label('y', "Altitude (m)");
+        gr->Grid();
+        gr->Box();
+        gr->SetRanges(plot_data.SubData(-1, 0, 0), plot_data.SubData(-1, 0, 1));
+        gr->Axis("xy");
+        gr->Plot(plot_data.SubData(-1, 0, 0), plot_data.SubData(-1, 0, 1));
 
-    auto *v_plot = new TGraph();
-    v_plot->SetTitle("Velocity");
-    v_plot->GetYaxis()->SetTitle("Y Velocity (meters/second)");
-    plotter->add_plot(v_plot);
+        gr->SubPlot(2, 2, 1);
+        gr->Title("Velocity");
+        gr->Label('x', "Time (s)");
+        gr->Label('y', "Y Velocity (m/s)");
+        gr->Grid();
+        gr->Box();
+        gr->SetRanges(plot_data.SubData(-1, 1, 0), plot_data.SubData(-1, 1, 1));
+        gr->Axis("xy");
+        gr->Plot(plot_data.SubData(-1, 1, 0), plot_data.SubData(-1, 1, 1));
 
-    auto *a_plot = new TGraph();
-    a_plot->SetTitle("Acceleration");
-    a_plot->GetYaxis()->SetTitle("Y Accleration (meters/second^2)");
-    plotter->add_plot(a_plot);
+        gr->SubPlot(2, 2, 2);
+        gr->Title("Acceleration");
+        gr->Label('x', "Time (s)");
+        gr->Label('y', "Y Acceleration (m/s^2)");
+        gr->Grid();
+        gr->Box();
+        gr->SetRanges(plot_data.SubData(-1, 2, 0), plot_data.SubData(-1, 2, 1));
+        gr->Axis("xy");
+        gr->Plot(plot_data.SubData(-1, 2, 0), plot_data.SubData(-1, 2, 1));
 
-    auto *j_plot = new TGraph();
-    j_plot->SetTitle("Atmospheric Drag");
-    j_plot->GetYaxis()->SetTitle("Drag Force (Newtons)");
-    plotter->add_plot(j_plot);
+        gr->SubPlot(2, 2, 3);
+        gr->Title("Jerk");
+        gr->Label('x', "Time (s)");
+        gr->Label('y', "Y Jerk (m/s^3)");
+        gr->Grid();
+        gr->Box();
+        gr->SetRanges(plot_data.SubData(-1, 3, 0), plot_data.SubData(-1, 3, 1));
+        gr->Axis("xy");
+        gr->Plot(plot_data.SubData(-1, 3, 0), plot_data.SubData(-1, 3, 1));
 
-    for (int i = 1; i <= 4; ++i) {
-        TVirtualPad *pad = plotter->get_canvas()->GetPad(i);
-        pad->SetGridx();
-        pad->SetGridy();
+        return 0;
+    }
 
-        if (i != 1) {
-            TGraph *plot = plotter->get_plot(i);
-            plot->GetXaxis()->SetTitle("Time (seconds)");
+    void Calc() override {
+        rtp.get_latch().wait();
+
+        // These numbers come from up there ^^
+        const double stage_1_dry_mass_kg = 25600;
+        const double stage_1_fuel_mass_kg = 395700;
+        const double stage_2_dry_mass_kg = 3900;
+        const double stage_2_fuel_mass_kg = 92670;
+        const double payload_mass_kg = 6800;
+
+        double merlin_p_e = liftoff::calc_pressure_earth(0) * 1000;
+        std::vector<engine> engines;
+        for (int i = 0; i < 9; ++i) {
+            engine e{MERLIN_MAX_THRUST, MERLIN_ISP};
+            engines.push_back(e);
         }
-    }
 
-    // These numbers come from up there ^^
-    const double stage_1_dry_mass_kg = 25600;
-    const double stage_1_fuel_mass_kg = 395700;
-    const double stage_2_dry_mass_kg = 3900;
-    const double stage_2_fuel_mass_kg = 92670;
-    const double payload_mass_kg = 6800;
+        rocket body{stage_1_dry_mass_kg + stage_2_dry_mass_kg + payload_mass_kg + stage_2_fuel_mass_kg,
+                    stage_1_fuel_mass_kg,
+                    engines,
+                    4, TIME_STEP};
 
-    double merlin_p_e = liftoff::calc_pressure_earth(0) * 1000;
-    std::vector<engine> engines;
-    for (int i = 0; i < 9; ++i) {
-        engine e{MERLIN_MAX_THRUST, MERLIN_ISP};
-        engines.push_back(e);
-    }
+        std::vector<liftoff::vector> &forces = body.get_forces();
+        const std::vector<liftoff::vector> &d_mot{body.get_d_mot()};
 
-    rocket body{stage_1_dry_mass_kg + stage_2_dry_mass_kg + payload_mass_kg + stage_2_fuel_mass_kg,
-                stage_1_fuel_mass_kg,
-                engines,
-                4, TIME_STEP};
+        // Telemetry
+        const liftoff::vector &p{d_mot[0]};
+        const liftoff::vector &v{d_mot[1]};
+        const liftoff::vector &a{d_mot[2]};
+        const liftoff::vector &j{d_mot[3]};
 
-    std::vector<liftoff::vector> &forces = body.get_forces();
-    const std::vector<liftoff::vector> &d_mot{body.get_d_mot()};
+        // Initial state
+        liftoff::vector w{0, -ACCEL_G * body.get_mass(), 0};
+        liftoff::vector n{0, ACCEL_G * body.get_mass(), 0};
+        forces.push_back(w);
+        forces.push_back(n);
+        forces.resize(4);
 
-    // Telemetry
-    const liftoff::vector &p{d_mot[0]};
-    const liftoff::vector &v{d_mot[1]};
-    const liftoff::vector &a{d_mot[2]};
-    const liftoff::vector &j{d_mot[3]};
+        plot_data.Create(1, 4, 2);
+        long double sim_duration_ticks = to_ticks(400);
+        for (int i = 0; i < sim_duration_ticks; ++i) {
+            double cur_time_s = i * TIME_STEP;
 
-    // Initial state
-    liftoff::vector w{0, -ACCEL_G * body.get_mass(), 0};
-    liftoff::vector n{0, ACCEL_G * body.get_mass(), 0};
-    forces.push_back(w);
-    forces.push_back(n);
-    forces.resize(4);
+            // Computation
+            body.pre_compute();
 
-    int pause_ticks = 0;
-    long double sim_duration_ticks = to_ticks(500);
-    for (int i = 1; i < sim_duration_ticks; ++i) {
-        double cur_time_s = i * TIME_STEP;
+            // Normal force computation
+            liftoff::vector new_n;
+            if (p.get_y() < 0) {
+                for (int k = 0; k < forces.size(); ++k) {
+                    if (k == 1) {
+                        continue;
+                    }
 
-        // Computation
-        body.pre_compute();
-
-        // Normal force computation
-        liftoff::vector new_n;
-        if (p.get_y() < 0) {
-            for (int k = 0; k < forces.size(); ++k) {
-                if (k == 1) {
-                    continue;
+                    liftoff::vector &force = forces[k];
+                    if (force.get_y() < 0) {
+                        new_n.add({0, -force.get_y(), 0});
+                    }
                 }
 
-                liftoff::vector &force = forces[k];
-                if (force.get_y() < 0) {
-                    new_n.add({0, -force.get_y(), 0});
+                // Hitting the ground
+                if (v.get_y() < 0) {
+                    body.set_velocity({});
+                }
+            }
+            forces[1] = new_n;
+
+            // Recompute weight vector
+            double cur_mass = body.get_mass();
+            liftoff::vector cur_weight = {0, -ACCEL_G * cur_mass, 0};
+            forces[0] = cur_weight;
+
+            // Recompute drag for new velocity
+            double v_mag = v.magnitude();
+            liftoff::vector cur_drag;
+            if (v_mag != 0) {
+                double drag = liftoff::calc_drag_earth(F9_CD, p.get_y(), v_mag, F9_A);
+                cur_drag = {-v.get_x() * drag / v_mag, -v.get_y() * drag / v_mag, 0};
+            }
+            forces[2] = cur_drag;
+
+            // Recompute thrust
+            std::vector<engine> &cur_engines{body.get_engines()};
+
+            double prop_rem = body.get_prop_mass();
+            if (prop_rem <= 0) {
+                std::cout << cur_time_s << ": No propellant" << std::endl;
+                continue;
+            }
+
+            const velocity_flight_profile &profile = rtp.get_profile();
+            double vx = profile.get_vx(cur_time_s);
+            double vy = profile.get_vy(cur_time_s);
+
+            double dvx;
+            double dvy;
+            double accel;
+            if (!std::isnan(vx) && !std::isnan(vy)) {
+                dvx = vx - v.get_x();
+                dvy = vy - v.get_y();
+
+                accel = std::sqrt(dvx * dvx + dvy * dvy);
+                double f = body.get_mass() * accel;
+                double f_pe = f / engines.size();
+
+                double throttle = f / (engines.size() * MERLIN_MAX_THRUST);
+                /* std::cout << cur_time_s << ", " << vx << ", " << v.get_x() << ", " << dvx << ", " << vy << ", "
+                          << v.get_y()
+                          << ", " << dvy << ", " << accel << ", " << body.get_mass() << ", " << f << ", " << throttle
+                          << std::endl; */
+
+                for (auto &e : cur_engines) {
+                    e.set_throttle(f_pe / e.get_max_thrust());
                 }
             }
 
-            // Hitting the ground
-            if (v.get_y() < 0) {
-                body.set_velocity({});
+            if (cur_time_s == 155) {
+                std::cout << "MECO: Remaining propellant = " << body.get_prop_mass() << " kg" << std::endl;
+
+                // Second stage separation
+                body.set_mass(body.get_mass() - stage_2_dry_mass_kg - stage_2_fuel_mass_kg - payload_mass_kg);
             }
-        }
-        forces[1] = new_n;
 
-        // Recompute weight vector
-        double cur_mass = body.get_mass();
-        liftoff::vector cur_weight = {0, -ACCEL_G * cur_mass, 0};
-        forces[0] = cur_weight;
-
-        // Recompute drag for new velocity
-        double v_mag = v.magnitude();
-        liftoff::vector cur_drag;
-        if (v_mag != 0) {
-            double drag = liftoff::calc_drag_earth(F9_CD, p.get_y(), v_mag, F9_A);
-            cur_drag = {-v.get_x() * drag / v_mag, -v.get_y() * drag / v_mag, 0};
-        }
-        forces[2] = cur_drag;
-
-        // Recompute thrust
-        std::vector<engine> &cur_engines{body.get_engines()};
-
-        double prop_rem = body.get_prop_mass();
-        if (prop_rem <= 0) {
-            std::cout << cur_time_s << ": No propellant" << std::endl;
-            continue;
-        }
-
-        double vx = input.get_vx(cur_time_s);
-        double vy = input.get_vy(cur_time_s);
-        double dvx;
-        double dvy;
-        double accel;
-        if (!std::isnan(vx) && !std::isnan(vy)) {
-            dvx = vx - v.get_x();
-            dvy = vy - v.get_y();
-
-            accel = std::sqrt(dvx * dvx + dvy * dvy);
-            double f = body.get_mass() * accel;
-            double f_pe = f / engines.size();
-
-            double throttle = f / (engines.size() * MERLIN_MAX_THRUST);
-            std::cout << cur_time_s << ", " << vx << ", " << v.get_x() << ", " << dvx << ", " << vy << ", " << v.get_y() << ", " << dvy << ", " << accel << ", " << body.get_mass() << ", " << f << ", " << throttle << std::endl;
-
-            for (auto &e : cur_engines) {
-                e.set_throttle(f_pe / e.get_max_thrust());
+            if (cur_time_s > 155) {
+                for (auto &e : cur_engines) {
+                    e.set_throttle(0);
+                }
             }
-        }
 
-        if (cur_time_s == 155) {
-            std::cout << "MECO: Remaining propellant = " << body.get_prop_mass() << " kg" << std::endl;
+            double thrust_net = 0;
+            for (const auto &e : cur_engines) {
+                thrust_net += e.get_thrust();
 
-            // Second stage separation
-            body.set_mass(body.get_mass() - stage_2_dry_mass_kg - stage_2_fuel_mass_kg - payload_mass_kg);
-        }
-
-        if (cur_time_s > 155) {
-            for (auto &e : cur_engines) {
-                e.set_throttle(0);
+                double rate = e.get_prop_flow_rate();
+                double mass_flow = rate / ACCEL_G;
+                double total_prop_mass = mass_flow * TIME_STEP;
+                body.drain_propellant(total_prop_mass);
             }
-        }
 
-        double thrust_net = 0;
-        for (const auto &e : cur_engines) {
-            thrust_net += e.get_thrust();
+            liftoff::vector cur_thrust{0, thrust_net, 0};
+            if (!std::isnan(vx) && !std::isnan(vy)) {
+                double uax = dvx / accel;
+                double uay = dvy / accel;
 
-            double rate = e.get_prop_flow_rate();
-            double mass_flow = rate / ACCEL_G;
-            double total_prop_mass = mass_flow * TIME_STEP;
-            body.drain_propellant(total_prop_mass);
-        }
+                cur_thrust.set({uax * thrust_net, uay * thrust_net, 0});
+            }
+            forces[3] = cur_thrust;
 
-        liftoff::vector cur_thrust{0, thrust_net, 0};
-        if (!std::isnan(vx) && !std::isnan(vy)) {
-            double uax = dvx / accel;
-            double uay = dvy / accel;
+            body.compute_forces();
+            body.compute_motion();
+            body.post_compute();
 
-            cur_thrust.set({uax * thrust_net, uay * thrust_net, 0});
-        }
-        forces[3] = cur_thrust;
+            if (i != 0) {
+                plot_data.Insert('x', i);
+            }
 
-        body.compute_forces();
-        body.compute_motion();
-        body.post_compute();
+            plot_data.Put(p.get_x(), i, 0, 0);
+            plot_data.Put(p.get_y(), i, 0, 1);
 
-        if (!plotter->is_valid()) {
-            return;
-        }
+            plot_data.Put(cur_time_s, i, 1, 0);
+            plot_data.Put(v.magnitude(), i, 1, 1);
 
-        p_plot->SetPoint(i, p.get_x(), p.get_y());
-        v_plot->SetPoint(i, cur_time_s, v.magnitude());
-        a_plot->SetPoint(i, cur_time_s, a.magnitude());
-        j_plot->SetPoint(i, cur_time_s, cur_drag.magnitude());
+            plot_data.Put(cur_time_s, i, 2, 0);
+            plot_data.Put(a.magnitude(), i, 2, 1);
 
-        plotter_handle_gui(false);
+            plot_data.Put(cur_time_s, i, 3, 0);
+            plot_data.Put(j.magnitude(), i, 3, 1);
 
-        pause_ticks++;
-        if (pause_ticks >= 3000) {
-            plotter->update_plots();
-            plotter->await(1000000);
+            Check();
 
-            pause_ticks = 0;
+            Fl::awake(update_wnd, wnd_inst);
+
+            /* std::cout << cur_time_s << ", " << v.magnitude() << ", " << p.get_y() << ", " << pidf.compute_error()
+                      << ", "
+                      << p.get_x() << ", " << v.get_x() << ", " << v.get_y() << ", " << a.get_x() << ", " << a.get_y()
+                      << ", " << a.magnitude() << ", " << j.get_x() << ", " << j.get_y() << ", " << j.magnitude()
+                      << ", "
+                      << pidf.get_setpoint() << ", " << pidf.get_last_state() << ", " << raw.get_altitude(cur_time_s)
+                      << ", " << raw.get_altitude(cur_time_s) - p.get_y() << std::endl; */
         }
     }
-
-    plotter->update_plots();
-}
+};
 
 int main() {
     std::cout << std::setprecision(16);
 
-    int fake_argc = 0;
-    char *fake_argv[1];
-    TApplication app("SpaceX JCSAT-18/KACIFC1 Flight Sim", &fake_argc, fake_argv);
-
     velocity_flight_profile result{TIME_STEP};
-    auto *telemetry_plotter = new data_plotter(app, "Flight Data Replay", 2, 2);
-    run_telemetry_profile(telemetry_plotter, result);
 
-    auto *sim_plotter = new data_plotter(app, "Flight Simulation", 2, 2);
-    run_test_rocket(sim_plotter, result);
+    run_telemetry_profile rtp(result);
+    mglFLTK mgl_run_telem{&rtp, "SpaceX JCSAT-18/KACIFIC1 Flight Replay"};
+    rtp.set_window(&mgl_run_telem);
+    rtp.Run();
 
-    while (telemetry_plotter->is_valid() + sim_plotter->is_valid() > 0) {
-        plotter_handle_gui(true);
-    }
+    run_test_rocket rtr{rtp};
+    mglFLTK mgl_run_test{&rtr, "SpaceX JCSAT-18/KACIFIC1 Flight Sim"};
+    rtr.set_window(&mgl_run_test);
+    rtr.Run();
 
-    app.Terminate();
-
-    return 0;
+    return mgl_fltk_run();
 }

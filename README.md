@@ -2,7 +2,7 @@
 
 # Demo
 
-![Actual](https://i.postimg.cc/VNC8zF17/Flight-Data-Replay.png)
+![Actual](https://i.postimg.cc/hG1jmcJv/Screen-Shot-2020-12-19-at-7-30-23-PM.png)
 
 # Build
 
@@ -13,9 +13,11 @@ to be installed on your computer.
 
 Built with [CLion](https://www.jetbrains.com/clion/)
 
-Uses [ROOT](https://root.cern.ch/), 
-[SpaceXtract](https://github.com/shahar603/SpaceXtract)
-and [GMP](https://gmplib.org/)
+Utilizes:
+
+  * [MathGL](http://mathgl.sourceforge.net/)
+  * [SpaceXtract](https://github.com/shahar603/SpaceXtract)
+  * [GMP](https://gmplib.org/)
 
 A LOT of information was found on various different sites,
 too many to list here. They've been pasted in various
