@@ -2,7 +2,7 @@
 
 # Demo
 
-![Actual](https://i.postimg.cc/hG1jmcJv/Screen-Shot-2020-12-19-at-7-30-23-PM.png)
+![Actual](https://i.postimg.cc/sx5NzD13/Screen-Shot-2020-12-20-at-8-53-25-PM.png)
 
 # Build
 

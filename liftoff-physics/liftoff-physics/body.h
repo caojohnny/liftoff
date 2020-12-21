@@ -5,9 +5,6 @@
 
 #include "vector.h"
 
-/**
- * Represents a physical body possessing mass and motion.
- */
 namespace liftoff {
     /**
      * Abstraction of the derivative index for a motion
@@ -15,6 +12,9 @@ namespace liftoff {
      */
     typedef std::vector<int>::size_type d_idx_t;
 
+    /**
+     * Represents a physical body possessing mass and motion.
+     */
     class body {
     protected:
         /**
