@@ -1,13 +1,32 @@
 # `liftoff`
 
+SpaceX telemetry parser and modelling application written
+in C++.
+
+This takes the telemetry feed downloaded from SpaceX's
+livestream and attempts to model the dynamic forces acting
+on the rocket. The current iteration uses data from the
+JCSAT-18/KACIFIC1 mission. The results are plotted using
+MathGL's FLTK library as the model is updated.
+
 # Demo
 
 ![Actual](https://i.postimg.cc/sx5NzD13/Screen-Shot-2020-12-20-at-8-53-25-PM.png)
 
 # Build
 
-Requires [ROOT](https://root.cern.ch/) in addition to GMP
-to be installed on your computer.
+Requires MathGL headers and GMP to be installed on your
+computer.
+
+``` shell
+git clone https://github.com/AgentTroll/liftoff.git
+cd liftoff
+mkdir build && cd build
+cmake .. && make
+
+cd ..
+./build/liftoff-cli/liftoff-cli
+```
 
 # Credits
 
