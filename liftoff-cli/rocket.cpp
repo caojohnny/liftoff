@@ -2,7 +2,7 @@
 
 rocket::rocket(double rocket_dry_mass, double rocket_prop_mass, std::vector<engine> rocket_engines, int fdb_derivatives,
                double fdb_time_step) :
-        recording_fdb(rocket_dry_mass, fdb_derivatives, fdb_time_step), prop_mass(rocket_prop_mass),
+        liftoff::force_driven_body(rocket_dry_mass, fdb_derivatives, fdb_time_step), prop_mass(rocket_prop_mass),
         engines(std::move(rocket_engines)) {
 }
 

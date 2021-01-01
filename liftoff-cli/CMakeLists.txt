@@ -11,11 +11,9 @@ find_package(FLTK)
 
 add_executable(liftoff-cli
         main.cpp
-        recording_fdb.cpp recording_fdb.h
-        thrust.cpp thrust.h
+        engine.cpp engine.h
         telemetry_flight_profile.cpp telemetry_flight_profile.h
         rocket.cpp rocket.h
-        recording_vdb.cpp recording_vdb.h
         pidf_controller.cpp pidf_controller.h
         velocity_flight_profile.cpp velocity_flight_profile.h
         c11_binary_latch.cpp c11_binary_latch.h)

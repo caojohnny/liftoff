@@ -2,11 +2,12 @@
 #define LIFTOFF_CLI_ROCKET_H
 
 #include <vector>
-#include <liftoff-physics/force_driven_body.h>
-#include "thrust.h"
-#include "recording_fdb.h"
 
-class rocket : public recording_fdb {
+#include <liftoff-physics/force_driven_body.h>
+
+#include "engine.h"
+
+class rocket : public liftoff::force_driven_body {
 private:
     double prop_mass;
     std::vector<engine> engines;

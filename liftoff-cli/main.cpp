@@ -13,12 +13,12 @@
 #include <liftoff-physics/drag.h>
 #include <liftoff-physics/linalg.h>
 #include <liftoff-physics/telem_proc.h>
+#include <liftoff-physics/velocity_driven_body.h>
 
 #include "c11_binary_latch.h"
 #include "pidf_controller.h"
-#include "recording_vdb.h"
 #include "rocket.h"
-#include "thrust.h"
+#include "engine.h"
 #include "telemetry_flight_profile.h"
 #include "velocity_flight_profile.h"
 
@@ -46,23 +46,57 @@ static const double MERLIN_ISP = 282;
 // 0.95 m seems to be a fair diameter compromise
 static const double MERLIN_A = M_PI * 0.475 * 0.475;
 
+/**
+ * Converts the given number of seconds to ticks used in
+ * the simulation.
+ *
+ * @param seconds the number of seconds
+ * @return the equivalent number of ticks
+ */
 static long double to_ticks(int seconds) {
     return seconds * TICKS_PER_SEC;
 }
 
+/**
+ * Converts the given number of kilometers to the
+ * equivalent number of meters.
+ *
+ * @param km the number of kilometers
+ * @return the equivalent number of meters
+ */
 static double km_to_m(double km) {
     return km * 1000;
 }
 
+/**
+ * Determines the sign of the given number.
+ *
+ * @param x the number which to determine the sign
+ * @return -1 if negative, 1 if positive, 0 if 0
+ */
 static int signum(double x) {
     return (x > 0) - (x < 0);
 }
 
+/**
+ * Helper function used to update the given MathGL window
+ * from another thread. This must be called using the
+ * Fl::update() function.
+ *
+ * @param data the pointer to the MathGL window
+ */
 static void update_wnd(void *data) {
     auto *gr = static_cast<mglWnd *>(data);
     gr->Update();
 }
 
+/**
+ * Parses the SpaceXtract telemetry file from the given
+ * path into the given flight profile.
+ *
+ * @param raw the raw flight profile to parse data into
+ * @param path the path to the telemetry data file
+ */
 static void parse_telem(telemetry_flight_profile &raw, const std::string &path) {
     std::ifstream data_file{path};
     if (!data_file.good()) {
@@ -84,19 +118,27 @@ static void parse_telem(telemetry_flight_profile &raw, const std::string &path) 
     data_file.close();
 }
 
-static void
-setup_flight_profile(telemetry_flight_profile &raw, telemetry_flight_profile &fitted, const std::string &path) {
+/**
+ * Performs the telemetry data parsing and then smooths the
+ * data using interpolation and curve fitting.
+ *
+ * @param raw the raw telemetry data
+ * @param fitted the processed data
+ * @param path the path to the telemetry data file
+ */
+static void setup_flight_profile(telemetry_flight_profile &raw,
+                                 telemetry_flight_profile &fitted,
+                                 const std::string &path) {
     // JCSAT-18/KACIFIC1
 
-    // This actually isn't a ballistic trajectory (I don't think,
-    // I didn't look that closely at the animation) but it should
-    // be close enough in theory :)
     // https://everydayastronaut.com/prelaunch-preview-falcon-9-block-5-jcsat-18-kacific-1/
-    raw.set_ballistic_range(651000);
+    raw.set_range(651000);
     parse_telem(raw, path);
 
+    // Perform linear interpolation for velocity
     liftoff::interp_lin(fitted.get_velocities(), raw.get_velocities());
 
+    // Find MECO/SES/SECO events
     const std::map<double, double> &v_fitted = fitted.get_velocities();
     auto meco_ptr = liftoff::find_event_time(++v_fitted.cbegin(), v_fitted, true);
     auto ses_1_ptr = liftoff::find_event_time(meco_ptr, v_fitted, false);
@@ -107,13 +149,20 @@ setup_flight_profile(telemetry_flight_profile &raw, telemetry_flight_profile &fi
     std::vector<double> events = {meco_ptr->first, ses_1_ptr->first, seco_1_ptr->first};
     int n_events = events.size();
 
+    // Perform linear interpolation for altitude
     const std::map<double, double> &alt_fitted = fitted.get_altitudes();
     liftoff::interp_lin(fitted.get_altitudes(), raw.get_altitudes());
 
+    // Divide the data by each leg of the mission
     std::vector<std::vector<double>> times;
     std::vector<std::vector<double>> legs;
     liftoff::collect(times, legs, alt_fitted, events);
 
+    // Step 1: Force points are the same for leg 1 and 3
+
+    // Determine which points to force on the curve fit in
+    // order to maintain the correct state between legs for
+    // legs 1 and 3
     std::vector<liftoff::polynomial> alt_fit;
     for (int l = 0; l < n_events; ++l) {
         std::vector<std::pair<double, double>> force_points;
@@ -123,9 +172,12 @@ setup_flight_profile(telemetry_flight_profile &raw, telemetry_flight_profile &fi
             liftoff::force(force_points, alt_fitted, times[1], -1);
         }
 
+        // Increase the order of the least-squares curve
+        // regression
         alt_fit.push_back(liftoff::fit(4 + force_points.size(), times[l], legs[l], force_points));
     }
 
+    // Re-write the curve-fitted values into the profile
     for (const auto &it : alt_fitted) {
         double t = it.first;
         double alt = it.second;
@@ -146,36 +198,81 @@ setup_flight_profile(telemetry_flight_profile &raw, telemetry_flight_profile &fi
         }
     }
 
+    // Step 2: change the number of forced points for leg 2
+
+    // Find the correct forced points for leg 2
     std::vector<std::pair<double, double>> force_points;
     liftoff::force(force_points, alt_fitted, times[0], -3);
     liftoff::force(force_points, alt_fitted, times[2], 3);
 
+    // Re-write curve-fitted values for leg 2 into the
+    // profile
+    // Use the same order as forced points to avoid
+    // deviation due to sharp changes in altitude
     liftoff::polynomial lip_fit = liftoff::lip(force_points);
     for (const auto &t : times[1]) {
         fitted.put_altitude(t, lip_fit.val(t));
     }
 }
 
+/**
+ * Uses the Pythagorean theorem to determine the vertical
+ * velocity based on the total velocity and altitude delta.
+ *
+ * This procedure supports only X and Y components.
+ *
+ * @param pidf the PIDF controller containing to compute
+ * the altitude delta and the time step
+ * @param cur_v the current velocity vector
+ * @param mag_v the magnitude of the velocity for which
+ * to compute the next velocity
+ * @return the new desired velocity
+ */
 static liftoff::vector adjust_velocity(pidf_controller &pidf, const liftoff::vector &cur_v, double mag_v) {
     double target_x_velocity;
     double target_y_velocity;
 
     if (pidf.get_setpoint() == 0) {
+        // 0 setpoint, must be around liftoff so the velocity
+        // must be exactly vertical
         target_x_velocity = 0;
         target_y_velocity = mag_v;
     } else {
         double error = pidf.compute_error();
         target_y_velocity = error / pidf.get_time_step();
+
+        // The velocity needed to reach the setpoint is
+        // greater than the next velocity magnitude, so
+        // set the Y velocity to the entire magnitude of
+        // velocity
         if (std::abs(target_y_velocity) > mag_v) {
             target_y_velocity = signum(target_y_velocity) * mag_v;
         }
 
-        target_x_velocity = std::sqrt((long double) (mag_v * mag_v - target_y_velocity * target_y_velocity));
+        // Otherwise, to reach the velocity magnitude,
+        // there needs to be an additional horizontal
+        // component
+        target_x_velocity = std::sqrt((double) (mag_v * mag_v - target_y_velocity * target_y_velocity));
     }
 
     return {target_x_velocity, target_y_velocity, 0};
 }
 
+/**
+ * Post-curve fitting adjustment to the altitude to
+ * converge the velocity integral and the altitude profile.
+ * Running this in a loop to determine the break-even will
+ * find the "pitch time" or the time where the rocket
+ * begins begin to travel horizontally rather than
+ * just vertically.
+ *
+ * @param orig the original flight profile
+ * @param fitted the curve-fit profile to write the results
+ * @param break_even the time at which the velocity
+ * integral and the altitude are to break even
+ * @param max_time the maximum time to limit the
+ * velocity integration range
+ */
 static void adjust_altitude(const telemetry_flight_profile &orig,
                             telemetry_flight_profile &fitted,
                             double break_even,
@@ -188,12 +285,20 @@ static void adjust_altitude(const telemetry_flight_profile &orig,
         double alt = fitted.get_altitude(t);
         double v = fitted.get_velocity(t);
 
+        // Integrate velocity using Euler's method
         double dt = fitted.get_time_step();
         v_integral += v * dt;
+
         if (t < break_even) {
+            // Re-fit the altitude with the velocity integral
             fitted.put_altitude(t, v_integral);
             last_alt = v_integral;
         } else {
+            // Then for the rest of the profile, adjust the
+            // altitude and translate downwards from the
+            // original flight profile so the rest of the
+            // profile connects with the velocity integral
+            // break-even
             double target_error = orig.get_altitude(t) - orig.get_altitude(last_t);
             double target_alt = last_alt + target_error;
             if (target_alt >= alt) {
@@ -208,6 +313,11 @@ static void adjust_altitude(const telemetry_flight_profile &orig,
     }
 }
 
+/**
+ * @brief Runs the full flight profile parsed directly from
+ * data and then conditioned to obtain the X/Y resulting
+ * velocity profile.
+ */
 class run_telemetry_profile : public mglDraw {
 private:
     velocity_flight_profile &profile;
@@ -216,18 +326,48 @@ private:
     mglData plot_data;
     mglWnd *wnd_inst{nullptr};
 public:
+    /**
+     * Creates a new instance of the telemetry data
+     * plotting class with the given flight profile to
+     * store the results of running the simulation.
+     *
+     * @param profile the result of running the simulation
+     * and processing the data
+     */
     explicit run_telemetry_profile(velocity_flight_profile &profile) :
             profile(profile) {
     }
 
+    /**
+     * Obtains the profile generated from running the
+     * simulation.
+     *
+     * Not valid before get_latch().wait() returns.
+     *
+     * @return the X/Y profile computed from the
+     * conditioned telemetry data
+     */
     const velocity_flight_profile &get_profile() const {
         return profile;
     }
 
+    /**
+     * Obtains the completion latch, which will be released
+     * when the simulation ends.
+     *
+     * @return the latch which completes at the end of the
+     * telemetry replay
+     */
     c11_binary_latch &get_latch() {
         return latch;
     }
 
+    /**
+     * Sets the window initialized by this MathGL drawing
+     * class.
+     *
+     * @param wnd the pointer to the window
+     */
     void set_window(mglWnd *wnd) {
         wnd_inst = wnd;
     }
@@ -279,6 +419,7 @@ public:
     }
 
     void Calc() override {
+        // Rocket setup
         // Source: https://www.spaceflightinsider.com/hangar/falcon-9/
         const double stage_1_dry_mass_kg = 25600;
         const double stage_1_fuel_mass_kg = 395700;
@@ -291,18 +432,19 @@ public:
                             payload_mass_kg;
 
         double time_step = 1;
-        recording_vdb vdb{total_mass, 4, time_step};
-        liftoff::velocity_driven_body &body = vdb;
+        liftoff::velocity_driven_body body{total_mass, 4, time_step};
 
+        // Flight profile setup
         telemetry_flight_profile raw{time_step};
         telemetry_flight_profile fitted{time_step};
         setup_flight_profile(raw, fitted, "./data/data.json");
         const telemetry_flight_profile orig = fitted;
 
         double max_time = 500;
+        int total_steps = static_cast<int>(max_time / time_step);
 
+        // Final conditioning step
         double last_corrected_time = 0;
-        int total_steps = static_cast<int>(static_cast<double>(max_time) / time_step);
         while (true) {
             bool valid = true;
             double last_t = 0;
@@ -315,6 +457,17 @@ public:
                 double target_error = alt - last_alt;
                 double target_v = target_error / dt;
                 double v = fitted.get_velocity(t);
+
+                // This loop ensures that there is enough
+                // velocity in order to move the rocket to
+                // the next recorded altitude
+                // If there is not enough velocity, the
+                // flight profile's altitude needs to be
+                // translated down to match with the
+                // velocity integral
+                // Recursively do so until we can ensure
+                // the entire profile velocity/altitudes
+                // match
                 if (v < target_v && last_corrected_time < t) {
                     last_corrected_time = t;
                     adjust_altitude(orig, fitted, t, max_time);
@@ -349,11 +502,10 @@ public:
         for (int i = 0; i < total_steps; ++i) {
             double cur_time_s = i * time_step;
 
-            // Computation
             body.pre_compute();
-
             pidf.set_last_state(p.get_y());
 
+            // Position/velocity computation
             double telem_velocity = fitted.get_velocity(cur_time_s);
             double telem_alt = fitted.get_altitude(cur_time_s);
             if (!std::isnan(telem_velocity) && !std::isnan(telem_alt)) {
@@ -363,14 +515,17 @@ public:
                 body.set_velocity(new_velocity);
             }
 
+            // Compute drag force
             double drag_x = liftoff::calc_drag_earth(F9_CD, p.get_y(), v.get_x(), F9_A);
             double drag_y = liftoff::calc_drag_earth(F9_CD, p.get_y(), v.get_y(), F9_A);
             liftoff::vector cur_drag{drag_x, drag_y, 0};
             recorded_drag.push_back(cur_drag.get_y());
 
+            // Computation
             body.compute_motion();
             body.post_compute();
 
+            // Record data into the matrix
             if (i != 0) {
                 plot_data.Insert('x', i);
             }
@@ -387,12 +542,16 @@ public:
             plot_data.Put(cur_time_s, i, 3, 0);
             plot_data.Put(j.magnitude(), i, 3, 1);
 
+            // Check for pausing
             Check();
 
+            // Update the window
             Fl::awake(update_wnd, wnd_inst);
 
+            // Record data to the result profile
             profile.put_vx(cur_time_s, v.get_x());
             profile.put_vy(cur_time_s, v.get_y());
+
             /* std::cout << cur_time_s << ", " << v.magnitude() << ", " << p.get_y() << ", " << pidf.compute_error()
                       << ", "
                       << p.get_x() << ", " << v.get_x() << ", " << v.get_y() << ", " << a.get_x() << ", " << a.get_y()
@@ -406,6 +565,11 @@ public:
     }
 };
 
+/**
+ * @brief Creates a rocket model to run the profile from
+ * the flight simulation and then simulate again using
+ * parameters that attempt to match the original rocket.
+ */
 class run_test_rocket : public mglDraw {
 private:
     run_telemetry_profile &rtp;
@@ -413,10 +577,23 @@ private:
     mglWnd *wnd_inst{nullptr};
     mglData plot_data;
 public:
+    /**
+     * Constructs the model using the profile generated by
+     * the given simulation instance.
+     *
+     * @param rtp the simulation that produces the flight
+     * profile for this model
+     */
     explicit run_test_rocket(run_telemetry_profile &rtp) :
             rtp(rtp) {
     }
 
+    /**
+     * Sets the window initialized by this MathGL drawing
+     * class.
+     *
+     * @param wnd the pointer to the window
+     */
     void set_window(mglWnd *wnd) {
         wnd_inst = wnd;
     }
@@ -468,8 +645,10 @@ public:
     }
 
     void Calc() override {
+        // Wait for the simulation completion
         rtp.get_latch().wait();
 
+        // Set up the rocket
         // These numbers come from up there ^^
         const double stage_1_dry_mass_kg = 25600;
         const double stage_1_fuel_mass_kg = 395700;
@@ -551,6 +730,7 @@ public:
             // Recompute thrust
             std::vector<engine> &cur_engines{body.get_engines()};
 
+            // Propellant check
             double prop_rem = body.get_prop_mass();
             if (prop_rem <= 0) {
                 std::cout << cur_time_s << ": No propellant" << std::endl;
@@ -561,6 +741,7 @@ public:
             double vx = profile.get_vx(cur_time_s);
             double vy = profile.get_vy(cur_time_s);
 
+            // Set engine throttle
             double dvx;
             double dvy;
             double accel;
@@ -583,6 +764,7 @@ public:
                 }
             }
 
+            // Hardcoded MECO times
             if (cur_time_s == 155) {
                 std::cout << "MECO: Remaining propellant = " << body.get_prop_mass() << " kg" << std::endl;
 
@@ -590,12 +772,15 @@ public:
                 body.set_mass(body.get_mass() - stage_2_dry_mass_kg - stage_2_fuel_mass_kg - payload_mass_kg);
             }
 
+            // Turn off engines after MECO
             if (cur_time_s > 155) {
                 for (auto &e : cur_engines) {
                     e.set_throttle(0);
                 }
             }
 
+            // Compute the thrust vector and recompute the
+            // rocket mass with the new throttle
             double thrust_net = 0;
             for (const auto &e : cur_engines) {
                 thrust_net += e.get_thrust();
@@ -619,6 +804,7 @@ public:
             body.compute_motion();
             body.post_compute();
 
+            // Record to the data matrix
             if (i != 0) {
                 plot_data.Insert('x', i);
             }
@@ -635,8 +821,10 @@ public:
             plot_data.Put(cur_time_s, i, 3, 0);
             plot_data.Put(j.magnitude(), i, 3, 1);
 
+            // Check for pauses
             Check();
 
+            // Update the window with data
             Fl::awake(update_wnd, wnd_inst);
 
             /* std::cout << cur_time_s << ", " << v.magnitude() << ", " << p.get_y() << ", " << pidf.compute_error()
@@ -655,11 +843,15 @@ int main() {
 
     velocity_flight_profile result{TIME_STEP};
 
-    run_telemetry_profile rtp(result);
+    // Run the telemetry profile simulation and record the
+    // results to the given flight profile
+    run_telemetry_profile rtp{result};
     mglFLTK mgl_run_telem{&rtp, "SpaceX JCSAT-18/KACIFIC1 Flight Replay"};
     rtp.set_window(&mgl_run_telem);
     rtp.Run();
 
+    // Attempt to simulate with the parsed flight profile
+    // data with the test model
     run_test_rocket rtr{rtp};
     mglFLTK mgl_run_test{&rtr, "SpaceX JCSAT-18/KACIFIC1 Flight Sim"};
     rtr.set_window(&mgl_run_test);

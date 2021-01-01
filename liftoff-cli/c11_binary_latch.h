@@ -5,9 +5,9 @@
 #include <mutex>
 
 /**
- * Represents a single-use latch which can have multiple
- * waiting threads which are released by the release()
- * method. This is implemented for C11.
+ * @brief Represents a single-use latch which can have
+ * multiple waiting threads which are released by the
+ * release() method. This is implemented for C++11.
  */
 class c11_binary_latch {
 private:

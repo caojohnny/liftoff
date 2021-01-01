@@ -20,7 +20,7 @@ public:
 
     double get_current_time() const;
 
-    void set_ballistic_range(double range);
+    void set_range(double range);
 
     double get_downrange_distance() const;
 

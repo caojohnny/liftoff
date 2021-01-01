@@ -12,7 +12,7 @@ double telemetry_flight_profile::get_current_time() const {
     return current_time;
 }
 
-void telemetry_flight_profile::set_ballistic_range(double range) {
+void telemetry_flight_profile::set_range(double range) {
     ballistic_range = range;
 }
 

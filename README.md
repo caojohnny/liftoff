@@ -7,7 +7,10 @@ This takes the telemetry feed downloaded from SpaceX's
 livestream and attempts to model the dynamic forces acting
 on the rocket. The current iteration uses data from the
 JCSAT-18/KACIFIC1 mission. The results are plotted using
-MathGL's FLTK library as the model is updated.
+MathGL's FLTK library as the model is updated. This then
+uses the processed data in a new model that attempts to
+replicate the rocket to validate the model and extract
+other data such as thrust and other controls.
 
 # Demo
 

@@ -1,4 +1,4 @@
-#include "thrust.h"
+#include "engine.h"
 
 engine::engine(double engine_max_thrust, double engine_i_sp) :
         max_thrust(engine_max_thrust), i_sp(engine_i_sp), throttle_pct(0) {
