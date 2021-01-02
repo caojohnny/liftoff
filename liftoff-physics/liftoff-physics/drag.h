@@ -1,3 +1,9 @@
+/**
+ * @file
+ * @brief Helper functions for computing the drag force
+ * based upon the standard atmosphere.
+ */
+
 #ifndef LIFTOFF_PHYSICS_DRAG_H
 #define LIFTOFF_PHYSICS_DRAG_H
 

@@ -1,3 +1,7 @@
+/**
+ * @file
+ */
+
 #ifndef LIFTOFF_VELOCITY_DRIVEN_BODY_H
 #define LIFTOFF_VELOCITY_DRIVEN_BODY_H
 
@@ -5,8 +9,8 @@
 
 namespace liftoff {
     /**
-     * Represents a body whose motion is controlled by the
-     * velocity vector.
+     * @brief Represents a body whose motion is controlled
+     * by the velocity vector.
      */
     class velocity_driven_body : public liftoff::driven_body {
     public:

@@ -1,3 +1,7 @@
+/**
+ * @file
+ */
+
 #ifndef LIFTOFF_CLI_THRUST_H
 #define LIFTOFF_CLI_THRUST_H
 

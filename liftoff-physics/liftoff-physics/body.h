@@ -1,3 +1,7 @@
+/**
+ * @file
+ */
+
 #ifndef LIFTOFF_PHYSICS_BODY_H
 #define LIFTOFF_PHYSICS_BODY_H
 
@@ -13,7 +17,8 @@ namespace liftoff {
     typedef std::vector<int>::size_type d_idx_t;
 
     /**
-     * Represents a physical body possessing mass and motion.
+     * @brief Represents a physical body possessing mass
+     * and motion.
      */
     class body {
     protected:

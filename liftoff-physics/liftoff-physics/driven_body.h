@@ -1,3 +1,7 @@
+/**
+ * @file
+ */
+
 #ifndef LIFTOFF_PHYSICS_DRIVEN_BODY_H
 #define LIFTOFF_PHYSICS_DRIVEN_BODY_H
 
@@ -9,8 +13,8 @@
 
 namespace liftoff {
     /**
-     * Represents a body whose movement is specified by one
-     * of its derivatives.
+     * @brief Represents a body whose movement is specified
+     * by one of its derivatives.
      */
     class driven_body : public liftoff::body {
     protected:

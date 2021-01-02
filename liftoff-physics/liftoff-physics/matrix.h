@@ -1,3 +1,7 @@
+/**
+ * @file
+ */
+
 #ifndef LIFTOFF_PHYSICS_MATRIX_H
 #define LIFTOFF_PHYSICS_MATRIX_H
 
@@ -6,12 +10,17 @@
 
 namespace liftoff {
     /**
-     * Represents a matrix of values consisting of GNU
-     * Multiprecision Library values.
+     * @brief Represents a matrix of values consisting of
+     * GNU Multiprecision Library values.
      */
     class matrix {
     private:
+        /**
+         * A dense matrix of cells organized by rows
+         * and then columns.
+         */
         std::vector<std::vector<mpf_class>> cells;
+
     public:
         /**
          * Creates a new square matrix with the given

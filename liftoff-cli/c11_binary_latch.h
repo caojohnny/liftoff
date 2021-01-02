@@ -1,3 +1,7 @@
+/**
+ * @file
+ */
+
 #ifndef LIFTOFF_C11_BINARY_LATCH_H
 #define LIFTOFF_C11_BINARY_LATCH_H
 

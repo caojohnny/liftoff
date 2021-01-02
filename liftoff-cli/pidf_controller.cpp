@@ -8,7 +8,7 @@ pidf_controller::pidf_controller(double pc_time_step, double pc_p_gain, double p
         time_step(pc_time_step), p_gain(pc_p_gain), i_gain(pc_i_gain), d_gain(pc_d_gain), f_gain(pc_f_gain) {
 }
 
-double pidf_controller::get_time_step() {
+double pidf_controller::get_time_step() const {
     return time_step;
 }
 

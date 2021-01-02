@@ -1,3 +1,7 @@
+/**
+ * @file
+ */
+
 #ifndef LIFTOFF_FORCE_DRIVEN_BODY_H
 #define LIFTOFF_FORCE_DRIVEN_BODY_H
 
@@ -8,8 +12,8 @@
 
 namespace liftoff {
     /**
-     * Represents a body whose motion is determined by the
-     * forces acting upon it.
+     * @brief Represents a body whose motion is determined
+     * by the forces acting upon it.
      */
     class force_driven_body : public liftoff::driven_body {
     protected:

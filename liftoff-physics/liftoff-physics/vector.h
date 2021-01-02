@@ -1,3 +1,7 @@
+/**
+ * @file
+ */
+
 #ifndef LIFTOFF_PHYSICS_VECTOR_H
 #define LIFTOFF_PHYSICS_VECTOR_H
 
@@ -5,13 +9,22 @@
 
 namespace liftoff {
     /**
-     * Represents a tuple of 3 floating-point values in a
-     * physical vector.
+     * @brief Represents a tuple of 3 floating-point values
+     * in a physical vector.
      */
     class vector {
     private:
+        /**
+         * X coordinate of the vector.
+         */
         double x;
+        /**
+         * Y coordinate of the vector.
+         */
         double y;
+        /**
+         * Z coordinate of the vector.
+         */
         double z;
 
     public:

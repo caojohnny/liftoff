@@ -1,3 +1,8 @@
+/**
+ * @file
+ * @brief Curve-fitting functions
+ */
+
 #ifndef LIFTOFF_PHYSICS_LINALG_H
 #define LIFTOFF_PHYSICS_LINALG_H
 

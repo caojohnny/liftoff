@@ -13,11 +13,11 @@ double telemetry_flight_profile::get_current_time() const {
 }
 
 void telemetry_flight_profile::set_range(double range) {
-    ballistic_range = range;
+    range = range;
 }
 
 double telemetry_flight_profile::get_downrange_distance() const {
-    return ballistic_range * time_step;
+    return range * time_step;
 }
 
 void telemetry_flight_profile::put_velocity(double time, double next_velocity) {

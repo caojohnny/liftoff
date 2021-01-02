@@ -1,3 +1,9 @@
+/**
+ * @file
+ * @brief Helper functions for copying processing telemetry
+ * data
+ */
+
 #ifndef LIFTOFF_PHYSICS_TELEM_PROC_H
 #define LIFTOFF_PHYSICS_TELEM_PROC_H
 

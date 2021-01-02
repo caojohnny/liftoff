@@ -1,3 +1,7 @@
+/**
+ * @file
+ */
+
 #ifndef LIFTOFF_PHYSICS_POLYNOMIAL_H
 #define LIFTOFF_PHYSICS_POLYNOMIAL_H
 
@@ -6,11 +10,16 @@
 
 namespace liftoff {
     /**
-     * Represents a polynomial function.
+     * @brief Represents a polynomial function.
      */
     class polynomial {
     private:
+        /**
+         * The coefficients organized by lowest power
+         * first.
+         */
         std::vector<mpf_class> coefficients;
+
     public:
         /**
          * Initializes an empty polynomial.
