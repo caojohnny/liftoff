@@ -51,6 +51,7 @@ Built with [CLion](https://www.jetbrains.com/clion/)
 
 Utilizes:
 
+  * [json](https://github.com/nlohmann/json)
   * [MathGL](http://mathgl.sourceforge.net/)
   * [SpaceXtract](https://github.com/shahar603/SpaceXtract)
   * [GMP](https://gmplib.org/)
