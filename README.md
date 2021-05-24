@@ -22,7 +22,7 @@ Requires MathGL headers and GMP to be installed on your
 computer.
 
 ``` shell
-git clone https://github.com/AgentTroll/liftoff.git
+git clone https://github.com/caojohnny/liftoff.git
 cd liftoff
 mkdir build && cd build
 cmake .. && make
